@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface CodeCanvasViewProps {
-  onContinue: () => void;
+  onContinue?: () => void;
 }
 
 const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
@@ -93,17 +93,7 @@ const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b bg-background">
-        <div>
-          <div className="flex items-center gap-2">
-            <Code2 className="h-5 w-5 text-primary" />
-            <h2 className="text-2xl font-semibold">Code Canvas</h2>
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            Edit generated code or write custom transformations
-          </p>
-        </div>
-
+      <div className="flex items-center justify-between p-4 border-b bg-background">
         <div className="flex items-center gap-3">
           {/* Language Selector */}
           <div className="flex gap-1 border rounded-md p-1">
@@ -153,8 +143,10 @@ const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
               </>
             )}
           </Button>
+        </div>
 
-          <Button onClick={onContinue}>Continue</Button>
+        <div className="text-sm text-muted-foreground">
+          Switch to UI Canvas to continue the workflow
         </div>
       </div>
 

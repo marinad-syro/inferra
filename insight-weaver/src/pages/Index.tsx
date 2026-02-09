@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useWorkflow } from "@/contexts/WorkflowContext";
 import AppLayout from "@/components/layout/AppLayout";
 import WorkflowSidebar from "@/components/workflow/WorkflowSidebar";
+import CanvasNavigator from "@/components/canvas/CanvasNavigator";
 import UploadDataView from "@/components/canvas/UploadDataView";
 import DataWranglingView from "@/components/canvas/DataWranglingView";
 import ParseEventsView from "@/components/canvas/ParseEventsView";
@@ -12,12 +14,19 @@ import ResultsView from "@/components/canvas/ResultsView";
 
 const Index = () => {
   const { currentStep, updateStep, sessionLoading } = useWorkflow();
+  const [canvasMode, setCanvasMode] = useState<'ui' | 'code'>('ui');
 
   const handleStepChange = (step: number) => {
     updateStep(step);
   };
 
   const renderMainContent = () => {
+    // If in code mode, always show CodeCanvasView
+    if (canvasMode === 'code') {
+      return <CodeCanvasView onContinue={() => setCanvasMode('ui')} />;
+    }
+
+    // Otherwise show the current workflow step
     switch (currentStep) {
       case 1:
         return <UploadDataView onContinue={() => handleStepChange(2)} />;
@@ -32,9 +41,7 @@ const Index = () => {
       case 6:
         return <ResultsView />;
       case 7:
-        return <DataVisualizationView onContinue={() => handleStepChange(8)} />;
-      case 8:
-        return <CodeCanvasView onContinue={() => handleStepChange(6)} />;
+        return <DataVisualizationView onContinue={() => handleStepChange(6)} />;
       default:
         return <UploadDataView onContinue={() => handleStepChange(2)} />;
     }
@@ -53,10 +60,16 @@ const Index = () => {
 
   return (
     <AppLayout
+      topBar={
+        <CanvasNavigator
+          mode={canvasMode}
+          onModeChange={setCanvasMode}
+        />
+      }
       leftSidebar={
-        <WorkflowSidebar 
-          currentStep={currentStep} 
-          onStepChange={handleStepChange} 
+        <WorkflowSidebar
+          currentStep={currentStep}
+          onStepChange={handleStepChange}
         />
       }
       mainContent={renderMainContent()}

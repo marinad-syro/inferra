@@ -30,6 +30,10 @@ class Settings(BaseSettings):
         default="http://python-service:8001",
         description="Python analysis service URL"
     )
+    r_service_url: str = Field(
+        default="http://r-service:8002",
+        description="R analysis service URL"
+    )
 
     # Frontend Configuration
     frontend_origin: str = Field(

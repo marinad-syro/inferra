@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config.settings import settings
-from app.routes import health, decide, llm_proxy, run, datasets, sessions, selections, variables, trials, wrangling, files, compute, visualizations
+from app.routes import health, decide, llm_proxy, run, datasets, sessions, selections, variables, trials, wrangling, files, compute, visualizations, code_canvas
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Inferra Backend API Gateway")
     logger.info(f"API Version: {settings.api_version}")
     logger.info(f"Python Service URL: {settings.python_service_url}")
+    logger.info(f"R Service URL: {settings.r_service_url}")
     logger.info(f"Frontend Origin: {settings.frontend_origin}")
 
     # Startup logic
@@ -88,6 +89,7 @@ app.include_router(wrangling.router, prefix="/api", tags=["Wrangling"])
 app.include_router(files.router, prefix="/api", tags=["Files"])
 app.include_router(compute.router, prefix="/api", tags=["Compute"])
 app.include_router(visualizations.router, prefix="/api", tags=["Visualizations"])
+app.include_router(code_canvas.router, prefix="/api", tags=["Code Canvas"])
 
 
 # Root endpoint

@@ -533,3 +533,47 @@ class FileUploadResponse(BaseModel):
     """File upload response."""
     file: FileMetadataResponse = Field(..., description="File metadata")
     parsed_data: ParsedFileData = Field(..., description="Parsed file data")
+
+
+# ============================================================================
+# Code Canvas / Execution
+# ============================================================================
+
+class CodeLanguage(str, Enum):
+    """Supported code execution languages."""
+    PYTHON = "python"
+    R = "r"
+
+
+class CodeExecutionRequest(BaseModel):
+    """Request to execute code."""
+    code: str = Field(..., description="Code to execute")
+    language: CodeLanguage = Field(default=CodeLanguage.PYTHON, description="Code language")
+    session_id: Optional[str] = Field(None, description="Session UUID")
+    dataset_reference: Optional[str] = Field(None, description="Dataset reference/path")
+
+
+class CodeExecutionResponse(BaseModel):
+    """Response from code execution."""
+    success: bool = Field(..., description="Whether execution succeeded")
+    row_count: Optional[int] = Field(None, description="Number of rows in result")
+    column_names: Optional[List[str]] = Field(None, description="Column names in result")
+    column_types: Optional[Dict[str, str]] = Field(None, description="Column types in result")
+    dataset: Optional[List[Dict[str, Any]]] = Field(None, description="Result dataset")
+    error: Optional[str] = Field(None, description="Error message if failed")
+    traceback: Optional[str] = Field(None, description="Error traceback if failed")
+
+
+class CodeGenerationRequest(BaseModel):
+    """Request to generate code from UI operations."""
+    language: CodeLanguage = Field(default=CodeLanguage.PYTHON, description="Target language")
+    include_cleaning: bool = Field(default=True, description="Include data cleaning code")
+    include_transforms: bool = Field(default=True, description="Include derived variables")
+    include_analyses: bool = Field(default=True, description="Include analyses")
+
+
+class CodeGenerationResponse(BaseModel):
+    """Response with generated code."""
+    code: str = Field(..., description="Generated code")
+    language: str = Field(..., description="Code language")
+    operations_included: List[str] = Field(default_factory=list, description="Operations included")

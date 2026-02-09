@@ -1,0 +1,92 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Frontend build
+/insight-weaver/dist/
+/insight-weaver/.next/
+/insight-weaver/out/
+/insight-weaver/build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+.venv/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+backend/.env
+insight-weaver/.env
+insight-weaver/.env.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+*.cover
+.nyc_output
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads and temporary files
+uploads/
+temp/
+tmp/
+*.tmp
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Claude/AI artifacts
+.claude/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# R
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+
+# Docker
+*.log
+docker-compose.override.yml

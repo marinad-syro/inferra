@@ -1,0 +1,169 @@
+{
+  "rules": [
+    {
+      "id": "ttest_ind",
+      "match_terms": ["t-test", "t test", "two-sample t-test", "independent t-test", "compare means", "compare two groups"],
+      "required_schema": {
+        "min_numeric_columns": 1,
+        "has_group_column": true
+      },
+      "library": "scipy.stats",
+      "function": "ttest_ind",
+      "param_map": {
+        "group_col": {"type": "group"},
+        "value_col": {"type": "value"}
+      },
+      "explanation": "Independent two-sample t-test using scipy.stats.ttest_ind. Compares means between two independent groups."
+    },
+    {
+      "id": "ttest_rel",
+      "match_terms": ["paired t-test", "paired t test", "related t-test", "dependent t-test", "before after", "pre post"],
+      "required_schema": {
+        "min_numeric_columns": 2,
+        "has_group_column": false
+      },
+      "library": "scipy.stats",
+      "function": "ttest_rel",
+      "param_map": {
+        "col1": {"type": "value"},
+        "col2": {"type": "value"}
+      },
+      "explanation": "Paired/related samples t-test using scipy.stats.ttest_rel. Compares means of related samples (e.g., before/after measurements)."
+    },
+    {
+      "id": "f_oneway",
+      "match_terms": ["anova", "one-way anova", "f-test", "compare multiple groups", "compare three groups", "compare more than two groups"],
+      "required_schema": {
+        "min_numeric_columns": 1,
+        "has_group_column": true
+      },
+      "library": "scipy.stats",
+      "function": "f_oneway",
+      "param_map": {
+        "group_col": {"type": "group"},
+        "value_col": {"type": "value"}
+      },
+      "explanation": "One-way ANOVA using scipy.stats.f_oneway. Tests whether means differ across three or more independent groups."
+    },
+    {
+      "id": "pearsonr",
+      "match_terms": ["pearson correlation", "correlation", "linear correlation", "pearson r", "relationship between"],
+      "required_schema": {
+        "min_numeric_columns": 2,
+        "has_group_column": false
+      },
+      "library": "scipy.stats",
+      "function": "pearsonr",
+      "param_map": {
+        "x_col": {"type": "x"},
+        "y_col": {"type": "y"}
+      },
+      "explanation": "Pearson correlation coefficient using scipy.stats.pearsonr. Measures linear relationship between two continuous variables."
+    },
+    {
+      "id": "spearmanr",
+      "match_terms": ["spearman correlation", "spearman r", "rank correlation", "non-parametric correlation", "monotonic relationship"],
+      "required_schema": {
+        "min_numeric_columns": 2,
+        "has_group_column": false
+      },
+      "library": "scipy.stats",
+      "function": "spearmanr",
+      "param_map": {
+        "x_col": {"type": "x"},
+        "y_col": {"type": "y"}
+      },
+      "explanation": "Spearman rank correlation using scipy.stats.spearmanr. Measures monotonic relationship between two variables."
+    },
+    {
+      "id": "ols",
+      "match_terms": ["linear regression", "regression", "ols", "ordinary least squares", "predict", "model relationship"],
+      "required_schema": {
+        "min_numeric_columns": 2,
+        "has_group_column": false
+      },
+      "library": "statsmodels.formula.api",
+      "function": "ols",
+      "param_map": {
+        "dependent": {"type": "y"},
+        "independent": {"type": "x"}
+      },
+      "explanation": "Ordinary least squares regression using statsmodels.formula.api.ols. Models linear relationship between dependent and independent variables."
+    },
+    {
+      "id": "boxplot",
+      "match_terms": ["boxplot", "box plot", "box-and-whisker", "distribution by group", "visualize distribution"],
+      "required_schema": {
+        "min_numeric_columns": 1,
+        "has_group_column": true
+      },
+      "library": "seaborn",
+      "function": "boxplot",
+      "param_map": {
+        "x": {"type": "group"},
+        "y": {"type": "value"}
+      },
+      "explanation": "Box plot visualization using seaborn.boxplot. Shows distribution of numeric variable across groups."
+    },
+    {
+      "id": "scatter",
+      "match_terms": ["scatter plot", "scatterplot", "scatter", "plot points", "xy plot"],
+      "required_schema": {
+        "min_numeric_columns": 2,
+        "has_group_column": false
+      },
+      "library": "seaborn",
+      "function": "scatterplot",
+      "param_map": {
+        "x": {"type": "x"},
+        "y": {"type": "y"},
+        "hue": {"type": "group", "optional": true}
+      },
+      "explanation": "Scatter plot using seaborn.scatterplot. Visualizes relationship between two numeric variables."
+    },
+    {
+      "id": "histogram",
+      "match_terms": ["histogram", "distribution", "frequency", "plot distribution", "show frequency"],
+      "required_schema": {
+        "min_numeric_columns": 1,
+        "has_group_column": false
+      },
+      "library": "seaborn",
+      "function": "histplot",
+      "param_map": {
+        "x": {"type": "value"}
+      },
+      "explanation": "Histogram using seaborn.histplot. Shows frequency distribution of a numeric variable."
+    },
+    {
+      "id": "kde",
+      "match_terms": ["kde", "kernel density", "density plot", "smooth distribution"],
+      "required_schema": {
+        "min_numeric_columns": 1,
+        "has_group_column": false
+      },
+      "library": "seaborn",
+      "function": "kdeplot",
+      "param_map": {
+        "x": {"type": "value"},
+        "hue": {"type": "group", "optional": true}
+      },
+      "explanation": "Kernel density estimation plot using seaborn.kdeplot. Shows smoothed distribution of a numeric variable."
+    },
+    {
+      "id": "regplot",
+      "match_terms": ["regression plot", "regplot", "linear fit", "trend line", "line of best fit"],
+      "required_schema": {
+        "min_numeric_columns": 2,
+        "has_group_column": false
+      },
+      "library": "seaborn",
+      "function": "regplot",
+      "param_map": {
+        "x": {"type": "x"},
+        "y": {"type": "y"}
+      },
+      "explanation": "Regression plot using seaborn.regplot. Shows scatter plot with fitted linear regression line."
+    }
+  ]
+}

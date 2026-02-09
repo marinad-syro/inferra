@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_ENDPOINT=${LLM_ENDPOINT}
+      - LLM_MODEL=${LLM_MODEL:-grok-beta}
+      - PYTHON_SERVICE_URL=http://python-service:8001
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:5173}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      - python-service
+    networks:
+      - inferra-network
+    restart: unless-stopped
+
+  python-service:
+    build:
+      context: ./python-service
+      dockerfile: Dockerfile
+    expose:
+      - "8001"
+    volumes:
+      - plot-outputs:/app/outputs/plots
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks:
+      - inferra-network
+    restart: unless-stopped
+
+networks:
+  inferra-network:
+    driver: bridge
+
+volumes:
+  plot-outputs:

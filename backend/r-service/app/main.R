@@ -132,6 +132,116 @@ function(req, res) {
     invisible(NULL)
   }
 
+  # === Transformation Library Functions ===
+  # R equivalents of Python TransformationLibrary functions
+
+  env$map_binary <- function(df, column, mapping) {
+    # Map categorical values to binary (0/1)
+    df[[column]] <- mapping[as.character(df[[column]])]
+    return(df[[column]])
+  }
+
+  env$map_categorical <- function(df, column, mapping) {
+    # Map categorical values to other values
+    df[[column]] <- mapping[as.character(df[[column]])]
+    return(df[[column]])
+  }
+
+  env$normalize <- function(df, column, min_val = 0, max_val = 1) {
+    # Min-max normalization
+    col <- df[[column]]
+    col_min <- min(col, na.rm = TRUE)
+    col_max <- max(col, na.rm = TRUE)
+    if (col_max == col_min) {
+      return(rep(min_val, length(col)))
+    }
+    normalized <- (col - col_min) / (col_max - col_min)
+    return(min_val + normalized * (max_val - min_val))
+  }
+
+  env$z_score <- function(df, column) {
+    # Z-score normalization (standardization)
+    col <- df[[column]]
+    mean_val <- mean(col, na.rm = TRUE)
+    sd_val <- sd(col, na.rm = TRUE)
+    if (sd_val == 0) {
+      return(rep(0, length(col)))
+    }
+    return((col - mean_val) / sd_val)
+  }
+
+  env$composite_score <- function(df, columns, weights = NULL, normalize_first = TRUE) {
+    # Calculate weighted composite score
+    if (is.null(weights)) {
+      weights <- rep(1.0 / length(columns), length(columns))
+    }
+    weights <- weights / sum(weights)
+
+    result <- rep(0, nrow(df))
+    for (i in seq_along(columns)) {
+      col <- df[[columns[i]]]
+      if (normalize_first) {
+        col_min <- min(col, na.rm = TRUE)
+        col_max <- max(col, na.rm = TRUE)
+        if (col_max != col_min) {
+          col <- (col - col_min) / (col_max - col_min)
+        }
+      }
+      result <- result + weights[i] * col
+    }
+    return(result)
+  }
+
+  env$conditional_value <- function(df, condition_col, condition_val, true_val, false_val) {
+    # Apply conditional logic
+    return(ifelse(df[[condition_col]] == condition_val, true_val, false_val))
+  }
+
+  env$conditional_numeric <- function(df, condition_col, operator, threshold, true_val, false_val) {
+    # Apply numeric conditional logic
+    col <- df[[condition_col]]
+    condition <- switch(operator,
+      ">" = col > threshold,
+      "<" = col < threshold,
+      ">=" = col >= threshold,
+      "<=" = col <= threshold,
+      "==" = col == threshold,
+      "!=" = col != threshold,
+      stop("Invalid operator")
+    )
+    return(ifelse(condition, true_val, false_val))
+  }
+
+  env$percentile_rank <- function(df, column) {
+    # Calculate percentile rank (0-100)
+    col <- df[[column]]
+    return(rank(col, na.last = "keep") / sum(!is.na(col)) * 100)
+  }
+
+  env$bin_numeric <- function(df, column, bins, labels = NULL) {
+    # Bin numeric values into categories
+    return(cut(df[[column]], breaks = bins, labels = labels, include.lowest = TRUE))
+  }
+
+  env$log_transform <- function(df, column, base = exp(1)) {
+    # Apply logarithmic transformation
+    col <- df[[column]]
+    if (any(col <= 0, na.rm = TRUE)) {
+      stop("Cannot apply log transform to column containing non-positive values")
+    }
+    return(log(col, base = base))
+  }
+
+  env$winsorize <- function(df, column, lower_percentile = 5, upper_percentile = 95) {
+    # Winsorize (cap) extreme values
+    col <- df[[column]]
+    lower_val <- quantile(col, lower_percentile / 100, na.rm = TRUE)
+    upper_val <- quantile(col, upper_percentile / 100, na.rm = TRUE)
+    col[col < lower_val] <- lower_val
+    col[col > upper_val] <- upper_val
+    return(col)
+  }
+
   # Execute code with error handling and timeout
   result <- tryCatch({
     # Set timeout (30 seconds)

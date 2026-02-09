@@ -151,31 +151,142 @@ class CodeGenerator:
         code_lines = ["# === Statistical Analyses ==="]
 
         for analysis in analyses:
-            if analysis.get('execution_spec'):
-                spec = analysis['execution_spec']
-                library = spec.get('library', 'scipy.stats')
-                function = spec.get('function', '')
-                param_map = spec.get('param_map', {})
+            if not analysis.get('execution_spec'):
+                continue
 
-                if library == 'scipy.stats' and function == 'ttest_ind':
-                    group_col = param_map.get('group_col')
-                    value_col = param_map.get('value_col')
+            spec = analysis['execution_spec']
+            library = spec.get('library', 'scipy.stats')
+            function = spec.get('function', '')
+            param_map = spec.get('param_map', {})
+
+            # scipy.stats analyses
+            if library == 'scipy.stats':
+                if function == 'ttest_ind':
+                    group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
                     if group_col and value_col:
-                        code_lines.append(f"# T-test: {value_col} by {group_col}")
-                        code_lines.append(f"groups = df['{group_col}'].unique()")
-                        code_lines.append(f"group1 = df[df['{group_col}'] == groups[0]]['{value_col}']")
-                        code_lines.append(f"group2 = df[df['{group_col}'] == groups[1]]['{value_col}']")
-                        code_lines.append(f"t_stat, p_value = stats.ttest_ind(group1, group2)")
-                        code_lines.append(f"print(f'T-test result: t={{t_stat:.3f}}, p={{p_value:.4f}}')")
+                        code_lines.extend([
+                            f"# Independent t-test: {value_col} by {group_col}",
+                            f"groups = df['{group_col}'].unique()",
+                            f"group1 = df[df['{group_col}'] == groups[0]]['{value_col}']",
+                            f"group2 = df[df['{group_col}'] == groups[1]]['{value_col}']",
+                            f"t_stat, p_value = stats.ttest_ind(group1, group2)",
+                            f"print(f'Independent t-test: t={{t_stat:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
 
-                elif library == 'scipy.stats' and function == 'chi2_contingency':
-                    row_col = param_map.get('row_col')
-                    col_col = param_map.get('col_col')
+                elif function == 'ttest_rel':
+                    col1, col2 = param_map.get('col1'), param_map.get('col2')
+                    if col1 and col2:
+                        code_lines.extend([
+                            f"# Paired t-test: {col1} vs {col2}",
+                            f"t_stat, p_value = stats.ttest_rel(df['{col1}'], df['{col2}'])",
+                            f"print(f'Paired t-test: t={{t_stat:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'f_oneway':
+                    group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                    if group_col and value_col:
+                        code_lines.extend([
+                            f"# One-way ANOVA: {value_col} by {group_col}",
+                            f"groups = df['{group_col}'].unique()",
+                            f"group_data = [df[df['{group_col}'] == g]['{value_col}'] for g in groups]",
+                            f"f_stat, p_value = stats.f_oneway(*group_data)",
+                            f"print(f'One-way ANOVA: F={{f_stat:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'pearsonr':
+                    x_col, y_col = param_map.get('x_col'), param_map.get('y_col')
+                    if x_col and y_col:
+                        code_lines.extend([
+                            f"# Pearson correlation: {x_col} vs {y_col}",
+                            f"r, p_value = stats.pearsonr(df['{x_col}'], df['{y_col}'])",
+                            f"print(f'Pearson correlation: r={{r:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'spearmanr':
+                    x_col, y_col = param_map.get('x_col'), param_map.get('y_col')
+                    if x_col and y_col:
+                        code_lines.extend([
+                            f"# Spearman correlation: {x_col} vs {y_col}",
+                            f"rho, p_value = stats.spearmanr(df['{x_col}'], df['{y_col}'])",
+                            f"print(f'Spearman correlation: rho={{rho:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'kendalltau':
+                    x_col, y_col = param_map.get('x_col'), param_map.get('y_col')
+                    if x_col and y_col:
+                        code_lines.extend([
+                            f"# Kendall's tau correlation: {x_col} vs {y_col}",
+                            f"tau, p_value = stats.kendalltau(df['{x_col}'], df['{y_col}'])",
+                            f"print(f'Kendall tau correlation: tau={{tau:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'chi2_contingency':
+                    row_col = param_map.get('row_col') or param_map.get('var1')
+                    col_col = param_map.get('col_col') or param_map.get('var2')
                     if row_col and col_col:
-                        code_lines.append(f"# Chi-square test: {row_col} vs {col_col}")
-                        code_lines.append(f"contingency_table = pd.crosstab(df['{row_col}'], df['{col_col}'])")
-                        code_lines.append(f"chi2, p_value, dof, expected = stats.chi2_contingency(contingency_table)")
-                        code_lines.append(f"print(f'Chi-square result: chi2={{chi2:.3f}}, p={{p_value:.4f}}')")
+                        code_lines.extend([
+                            f"# Chi-square test: {row_col} vs {col_col}",
+                            f"contingency_table = pd.crosstab(df['{row_col}'], df['{col_col}'])",
+                            f"chi2, p_value, dof, expected = stats.chi2_contingency(contingency_table)",
+                            f"print(f'Chi-square test: chi2={{chi2:.3f}}, p={{p_value:.4f}}, dof={{dof}}')",
+                            ""
+                        ])
+
+                elif function == 'mannwhitneyu':
+                    group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                    if group_col and value_col:
+                        code_lines.extend([
+                            f"# Mann-Whitney U test: {value_col} by {group_col}",
+                            f"groups = df['{group_col}'].unique()",
+                            f"group1 = df[df['{group_col}'] == groups[0]]['{value_col}'].dropna()",
+                            f"group2 = df[df['{group_col}'] == groups[1]]['{value_col}'].dropna()",
+                            f"u_stat, p_value = stats.mannwhitneyu(group1, group2, alternative='two-sided')",
+                            f"print(f'Mann-Whitney U test: U={{u_stat:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'wilcoxon':
+                    col1, col2 = param_map.get('col1'), param_map.get('col2')
+                    if col1 and col2:
+                        code_lines.extend([
+                            f"# Wilcoxon signed-rank test: {col1} vs {col2}",
+                            f"w_stat, p_value = stats.wilcoxon(df['{col1}'], df['{col2}'])",
+                            f"print(f'Wilcoxon test: W={{w_stat:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+                elif function == 'kruskal':
+                    group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                    if group_col and value_col:
+                        code_lines.extend([
+                            f"# Kruskal-Wallis test: {value_col} by {group_col}",
+                            f"groups = df['{group_col}'].unique()",
+                            f"group_data = [df[df['{group_col}'] == g]['{value_col}'].dropna() for g in groups]",
+                            f"h_stat, p_value = stats.kruskal(*group_data)",
+                            f"print(f'Kruskal-Wallis test: H={{h_stat:.3f}}, p={{p_value:.4f}}')",
+                            ""
+                        ])
+
+            # statsmodels analyses
+            elif library == 'statsmodels' or library == 'statsmodels.formula.api':
+                if function == 'ols':
+                    dependent = param_map.get('dependent')
+                    independent = param_map.get('independent')
+                    if dependent and independent:
+                        code_lines.extend([
+                            f"# OLS Regression: {dependent} ~ {independent}",
+                            "import statsmodels.formula.api as smf",
+                            f"model = smf.ols('{dependent} ~ {independent}', data=df).fit()",
+                            "print(model.summary())",
+                            f"print(f'R-squared: {{model.rsquared:.3f}}, Adj R-squared: {{model.rsquared_adj:.3f}}')",
+                            ""
+                        ])
 
         return "\n".join(code_lines)
 
@@ -290,14 +401,46 @@ class CodeGenerator:
 
     def _convert_formula_to_r(self, formula: str) -> str:
         """Convert Python-style formula to R syntax."""
-        # Basic conversions
-        r_formula = formula.replace('np.log', 'log')
+        import re
+
+        r_formula = formula
+
+        # Convert numpy functions
+        r_formula = r_formula.replace('np.log', 'log')
         r_formula = r_formula.replace('np.exp', 'exp')
         r_formula = r_formula.replace('np.sqrt', 'sqrt')
         r_formula = r_formula.replace('np.abs', 'abs')
 
-        # Handle common patterns
-        # TODO: More sophisticated conversion if needed
+        # Convert pandas functions
+        r_formula = r_formula.replace('pd.cut', 'cut')
+
+        # Convert df["column"] to df$column
+        # Match df["column_name"] or df['column_name']
+        r_formula = re.sub(r'df\["([^"]+)"\]', r'df$\1', r_formula)
+        r_formula = re.sub(r"df\['([^']+)'\]", r'df$\1', r_formula)
+
+        # Convert Python list syntax to R vector syntax
+        # [1, 2, 3] → c(1, 2, 3)
+        # ["a", "b", "c"] → c("a", "b", "c")
+        r_formula = re.sub(r'\[([^\]]+)\]', r'c(\1)', r_formula)
+
+        # Convert pandas cut() parameters: bins= → breaks=
+        r_formula = r_formula.replace('bins=', 'breaks=')
+
+        # Convert pandas method calls to R function calls
+        # Pattern: df$column.method() → method(df$column, na.rm=TRUE)
+        # Must match the full df$column_name expression
+
+        # Handle quantile specially (needs probs parameter)
+        r_formula = re.sub(r'(df\$\w+)\.quantile\(([^)]+)\)', r'quantile(\1, probs=\2, na.rm=TRUE)', r_formula)
+
+        # Convert other methods: .min(), .max(), .mean(), .std(), etc.
+        r_formula = re.sub(r'(df\$\w+)\.min\(\)', r'min(\1, na.rm=TRUE)', r_formula)
+        r_formula = re.sub(r'(df\$\w+)\.max\(\)', r'max(\1, na.rm=TRUE)', r_formula)
+        r_formula = re.sub(r'(df\$\w+)\.mean\(\)', r'mean(\1, na.rm=TRUE)', r_formula)
+        r_formula = re.sub(r'(df\$\w+)\.median\(\)', r'median(\1, na.rm=TRUE)', r_formula)
+        r_formula = re.sub(r'(df\$\w+)\.std\(\)', r'sd(\1, na.rm=TRUE)', r_formula)
+        r_formula = re.sub(r'(df\$\w+)\.sum\(\)', r'sum(\1, na.rm=TRUE)', r_formula)
 
         return r_formula
 
@@ -306,28 +449,126 @@ class CodeGenerator:
         code_lines = ["# === Statistical Analyses ==="]
 
         for analysis in analyses:
-            if analysis.get('execution_spec'):
-                spec = analysis['execution_spec']
-                library = spec.get('library', 'stats')
-                function = spec.get('function', '')
-                param_map = spec.get('param_map', {})
+            if not analysis.get('execution_spec'):
+                continue
 
-                if function == 'ttest_ind':
-                    group_col = param_map.get('group_col')
-                    value_col = param_map.get('value_col')
-                    if group_col and value_col:
-                        code_lines.append(f"# T-test: {value_col} by {group_col}")
-                        code_lines.append(f"result <- t.test({value_col} ~ {group_col}, data = df)")
-                        code_lines.append("print(result)")
+            spec = analysis['execution_spec']
+            function = spec.get('function', '')
+            param_map = spec.get('param_map', {})
 
-                elif function == 'chi2_contingency':
-                    row_col = param_map.get('row_col')
-                    col_col = param_map.get('col_col')
-                    if row_col and col_col:
-                        code_lines.append(f"# Chi-square test: {row_col} vs {col_col}")
-                        code_lines.append(f"contingency_table <- table(df${row_col}, df${col_col})")
-                        code_lines.append("result <- chisq.test(contingency_table)")
-                        code_lines.append("print(result)")
+            # R stats analyses
+            if function == 'ttest_ind':
+                group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                if group_col and value_col:
+                    code_lines.extend([
+                        f"# Independent t-test: {value_col} by {group_col}",
+                        f"result <- t.test({value_col} ~ {group_col}, data = df)",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'ttest_rel':
+                col1, col2 = param_map.get('col1'), param_map.get('col2')
+                if col1 and col2:
+                    code_lines.extend([
+                        f"# Paired t-test: {col1} vs {col2}",
+                        f"result <- t.test(df${col1}, df${col2}, paired = TRUE)",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'f_oneway':
+                group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                if group_col and value_col:
+                    code_lines.extend([
+                        f"# One-way ANOVA: {value_col} by {group_col}",
+                        f"result <- aov({value_col} ~ {group_col}, data = df)",
+                        "print(summary(result))",
+                        ""
+                    ])
+
+            elif function == 'pearsonr':
+                x_col, y_col = param_map.get('x_col'), param_map.get('y_col')
+                if x_col and y_col:
+                    code_lines.extend([
+                        f"# Pearson correlation: {x_col} vs {y_col}",
+                        f"result <- cor.test(df${x_col}, df${y_col}, method = 'pearson')",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'spearmanr':
+                x_col, y_col = param_map.get('x_col'), param_map.get('y_col')
+                if x_col and y_col:
+                    code_lines.extend([
+                        f"# Spearman correlation: {x_col} vs {y_col}",
+                        f"result <- cor.test(df${x_col}, df${y_col}, method = 'spearman')",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'kendalltau':
+                x_col, y_col = param_map.get('x_col'), param_map.get('y_col')
+                if x_col and y_col:
+                    code_lines.extend([
+                        f"# Kendall's tau correlation: {x_col} vs {y_col}",
+                        f"result <- cor.test(df${x_col}, df${y_col}, method = 'kendall')",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'chi2_contingency':
+                row_col = param_map.get('row_col') or param_map.get('var1')
+                col_col = param_map.get('col_col') or param_map.get('var2')
+                if row_col and col_col:
+                    code_lines.extend([
+                        f"# Chi-square test: {row_col} vs {col_col}",
+                        f"contingency_table <- table(df${row_col}, df${col_col})",
+                        "result <- chisq.test(contingency_table)",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'mannwhitneyu':
+                group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                if group_col and value_col:
+                    code_lines.extend([
+                        f"# Mann-Whitney U test: {value_col} by {group_col}",
+                        f"result <- wilcox.test({value_col} ~ {group_col}, data = df)",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'wilcoxon':
+                col1, col2 = param_map.get('col1'), param_map.get('col2')
+                if col1 and col2:
+                    code_lines.extend([
+                        f"# Wilcoxon signed-rank test: {col1} vs {col2}",
+                        f"result <- wilcox.test(df${col1}, df${col2}, paired = TRUE)",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'kruskal':
+                group_col, value_col = param_map.get('group_col'), param_map.get('value_col')
+                if group_col and value_col:
+                    code_lines.extend([
+                        f"# Kruskal-Wallis test: {value_col} by {group_col}",
+                        f"result <- kruskal.test({value_col} ~ {group_col}, data = df)",
+                        "print(result)",
+                        ""
+                    ])
+
+            elif function == 'ols':
+                dependent = param_map.get('dependent')
+                independent = param_map.get('independent')
+                if dependent and independent:
+                    code_lines.extend([
+                        f"# OLS Regression: {dependent} ~ {independent}",
+                        f"model <- lm({dependent} ~ {independent}, data = df)",
+                        "print(summary(model))",
+                        ""
+                    ])
 
         return "\n".join(code_lines)
 

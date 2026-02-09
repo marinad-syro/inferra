@@ -6,7 +6,7 @@ FastAPI-based backend for the Inferra statistical analysis platform. This backen
 
 ```
 ┌─────────────────┐
-│  React Frontend │ (Lovable-generated)
+│  React Frontend │ (insight-weaver)
 │  (Static files) │
 └────────┬────────┘
          │
@@ -14,18 +14,20 @@ FastAPI-based backend for the Inferra statistical analysis platform. This backen
 ┌─────────────────────────────────────┐
 │     FastAPI API Gateway             │
 │  - Request validation & auth        │
-│  - Decision logic (deterministic)   │
+│  - Code generation & execution      │
 │  - LLM proxy (XAI/Grok)            │
 │  - Job orchestration                │
 │  - Supabase integration             │
+│  - Multi-language routing           │
 └────────┬────────────────────────────┘
          │
-         ├──────────────┬─────────────┐
-         ▼              ▼             ▼
-   ┌─────────┐   ┌──────────────┐  ┌────────────┐
-   │ Supabase│   │Python Service│  │ XAI/Grok   │
-   │  (DB)   │   │ (Statistics) │  │    LLM     │
-   └─────────┘   └──────────────┘  └────────────┘
+         ├──────────────┬──────────────┬─────────────┐
+         ▼              ▼              ▼             ▼
+   ┌─────────┐   ┌──────────────┐  ┌────────┐  ┌────────────┐
+   │ Supabase│   │Python Service│  │R Service│ │ XAI/Grok   │
+   │  (DB)   │   │ (Statistics) │  │(Stats)  │ │    LLM     │
+   └─────────┘   └──────────────┘  └────────┘ └────────────┘
+                   Port 8001          Port 8002
 ```
 
 ## Features
@@ -40,7 +42,8 @@ FastAPI-based backend for the Inferra statistical analysis platform. This backen
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Python 3.9+
+- R 4.3.0+
 - Supabase account and project
 - XAI/Grok API key
 - Git (for cloning)
@@ -56,25 +59,48 @@ FastAPI-based backend for the Inferra statistical analysis platform. This backen
    # Edit .env with your credentials
    ```
 
-3. **Required environment variables**:
+3. **Required environment variables** (create `.env` in `backend/` directory):
    ```env
    SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_KEY=your-anon-key-here
-   SUPABASE_JWT_SECRET=your-jwt-secret-here
-   LLM_API_KEY=your-xai-api-key-here
-   LLM_ENDPOINT=https://api.x.ai/v1
-   LLM_MODEL=grok-beta
+   SUPABASE_ANON_KEY=your-anon-key-here
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+   XAI_API_KEY=your-xai-api-key-here
+   XAI_MODEL=grok-3
+   XAI_REASONING_MODEL=grok-3-mini
+   XAI_FAST_MODEL=grok-4-fast
+   PYTHON_SERVICE_URL=http://localhost:8001
+   R_SERVICE_URL=http://localhost:8002
+   FRONTEND_ORIGIN=http://localhost:5173
+   LOG_LEVEL=INFO
    ```
 
-4. **Start services**:
+4. **Install R packages** (first time only):
    ```bash
-   docker-compose up --build
+   cd r-service
+   Rscript setup.R
+   cd ..
    ```
 
-5. **Access the API**:
+5. **Start all services**:
+   ```bash
+   ./start-services.sh
+   ```
+
+   This will start:
+   - API Gateway on port 8000
+   - Python Service on port 8001
+   - R Service on port 8002
+
+6. **Access the API**:
    - API Gateway: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
-   - Interactive API: http://localhost:8000/redoc
+   - Python Service: http://localhost:8001
+   - R Service: http://localhost:8002
+
+7. **Stop all services**:
+   ```bash
+   ./stop-services.sh
+   ```
 
 ## API Endpoints
 
@@ -198,31 +224,39 @@ backend/
 │   │   ├── main.py            # Main application
 │   │   ├── routes/            # API endpoints
 │   │   │   ├── health.py
-│   │   │   ├── decide.py
+│   │   │   ├── code_canvas.py  # Code generation/execution
 │   │   │   ├── run.py
 │   │   │   └── llm_proxy.py
 │   │   ├── services/          # Business logic
-│   │   │   ├── decision.py
+│   │   │   ├── code_generator.py
 │   │   │   ├── llm_adapter.py
 │   │   │   └── supabase_client.py
 │   │   ├── models/
 │   │   │   └── schemas.py     # Pydantic models
 │   │   └── config/
-│   │       ├── settings.py    # Configuration
-│   │       └── deterministic_rules.json
-│   ├── Dockerfile
+│   │       └── settings.py    # Configuration
+│   ├── test_code_generation.py
+│   ├── test_comprehensive_generation.py
 │   └── requirements.txt
 │
-├── python-service/            # Statistical Analysis Service
+├── python-service/            # Python Analysis Service
 │   ├── app/
-│   │   ├── analyze.py         # Main service
-│   │   ├── param_mapper.py    # Parameter mapping
+│   │   ├── main.py            # Main service
+│   │   ├── analyze.py         # Analysis execution
+│   │   ├── transformations.py # Data transformations
 │   │   └── plots.py           # Plotting utilities
-│   ├── Dockerfile
 │   └── requirements.txt
 │
-├── docker-compose.yml
-├── .env.example
+├── r-service/                 # R Analysis Service
+│   ├── app/
+│   │   └── main.R             # Plumber API
+│   ├── setup.R                # Package installer
+│   └── README.md
+│
+├── start-services.sh          # Start all services
+├── stop-services.sh           # Stop all services
+├── logs/                      # Service logs
+├── .env
 └── README.md
 ```
 

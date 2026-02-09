@@ -23,4 +23,4 @@ for (pkg in packages) {
 
 cat("\n✓ All packages installed successfully!\n")
 cat("\nYou can now run the R service with:\n")
-cat("R -e \"pr <- plumber::plumb('app/main.R'); pr$run(host='0.0.0.0', port=8002)\"\n")
+cat("R -e \"pr <- plumber::plumb('app/main.R'); pr\\$run(host='0.0.0.0', port=8002)\"\n")

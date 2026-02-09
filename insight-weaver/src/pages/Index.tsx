@@ -7,6 +7,7 @@ import ParseEventsView from "@/components/canvas/ParseEventsView";
 import CreateVariablesView from "@/components/canvas/CreateVariablesView";
 import ChooseAnalysisView from "@/components/canvas/ChooseAnalysisView";
 import DataVisualizationView from "@/components/canvas/DataVisualizationView";
+import CodeCanvasView from "@/components/canvas/CodeCanvasView";
 import ResultsView from "@/components/canvas/ResultsView";
 
 const Index = () => {
@@ -32,6 +33,8 @@ const Index = () => {
         return <ResultsView />;
       case 7:
         return <DataVisualizationView onContinue={() => handleStepChange(8)} />;
+      case 8:
+        return <CodeCanvasView onContinue={() => handleStepChange(6)} />;
       default:
         return <UploadDataView onContinue={() => handleStepChange(2)} />;
     }

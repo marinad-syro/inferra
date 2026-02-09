@@ -1,12 +1,13 @@
-import { 
-  Upload, 
-  FileText, 
-  Variable, 
-  BarChart3, 
+import {
+  Upload,
+  FileText,
+  Variable,
+  BarChart3,
   PieChart,
   Check,
   Wrench,
-  LineChart
+  LineChart,
+  Code2
 } from "lucide-react";
 
 interface WorkflowStep {
@@ -23,6 +24,7 @@ const steps: WorkflowStep[] = [
   { id: 5, label: "Choose Analysis", icon: <BarChart3 className="w-4 h-4" /> },
   { id: 6, label: "Results", icon: <PieChart className="w-4 h-4" /> },
   { id: 7, label: "Visualizations", icon: <LineChart className="w-4 h-4" /> },
+  { id: 8, label: "Code Canvas", icon: <Code2 className="w-4 h-4" /> },
 ];
 
 interface WorkflowSidebarProps {

@@ -486,6 +486,60 @@ export const apiClient = {
   },
 
   // ========================================================================
+  // CODE CANVAS
+  // ========================================================================
+
+  /**
+   * Generate code from UI operations
+   */
+  async generateCode(
+    sessionId: string,
+    language: 'python' | 'r' = 'python',
+    options?: {
+      include_cleaning?: boolean;
+      include_transforms?: boolean;
+      include_analyses?: boolean;
+    }
+  ): Promise<{ code: string; language: string; operations_included: string[] }> {
+    const params = new URLSearchParams({
+      language,
+      ...(options?.include_cleaning !== undefined && { include_cleaning: String(options.include_cleaning) }),
+      ...(options?.include_transforms !== undefined && { include_transforms: String(options.include_transforms) }),
+      ...(options?.include_analyses !== undefined && { include_analyses: String(options.include_analyses) }),
+    });
+    return await this.get(`/api/code-canvas/${sessionId}/generate?${params}`);
+  },
+
+  /**
+   * Execute user-edited code (Python or R)
+   */
+  async executeCode(
+    sessionId: string,
+    code: string,
+    language: 'python' | 'r' = 'python'
+  ): Promise<{
+    success: boolean;
+    row_count?: number;
+    column_names?: string[];
+    dataset?: any[];
+    error?: string;
+    traceback?: string;
+  }> {
+    return await this.post(`/api/code-canvas/${sessionId}/execute`, {
+      code,
+      language,
+      session_id: sessionId,
+    });
+  },
+
+  /**
+   * Get execution status
+   */
+  async getExecutionStatus(sessionId: string): Promise<any> {
+    return await this.get(`/api/code-canvas/${sessionId}/status`);
+  },
+
+  // ========================================================================
   // PATCH method
   // ========================================================================
 

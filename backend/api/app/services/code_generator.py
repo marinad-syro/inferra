@@ -166,7 +166,7 @@ class CodeGenerator:
                         code_lines.append(f"group1 = df[df['{group_col}'] == groups[0]]['{value_col}']")
                         code_lines.append(f"group2 = df[df['{group_col}'] == groups[1]]['{value_col}']")
                         code_lines.append(f"t_stat, p_value = stats.ttest_ind(group1, group2)")
-                        code_lines.append(f"print(f'T-test result: t={t_stat:.3f}, p={p_value:.4f}')")
+                        code_lines.append(f"print(f'T-test result: t={{t_stat:.3f}}, p={{p_value:.4f}}')")
 
                 elif library == 'scipy.stats' and function == 'chi2_contingency':
                     row_col = param_map.get('row_col')
@@ -175,7 +175,7 @@ class CodeGenerator:
                         code_lines.append(f"# Chi-square test: {row_col} vs {col_col}")
                         code_lines.append(f"contingency_table = pd.crosstab(df['{row_col}'], df['{col_col}'])")
                         code_lines.append(f"chi2, p_value, dof, expected = stats.chi2_contingency(contingency_table)")
-                        code_lines.append(f"print(f'Chi-square result: chi2={chi2:.3f}, p={p_value:.4f}')")
+                        code_lines.append(f"print(f'Chi-square result: chi2={{chi2:.3f}}, p={{p_value:.4f}}')")
 
         return "\n".join(code_lines)
 

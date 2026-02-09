@@ -1,18 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Editor from '@monaco-editor/react';
 import { useWorkflow } from "@/contexts/WorkflowContext";
 import { apiClient } from "@/services/apiClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Play, RotateCcw, Code2, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Play, RotateCcw, Code2, Loader2, AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface CodeCanvasViewProps {
   onContinue?: () => void;
+  refreshTrigger?: number; // Increment this to trigger a refresh
 }
 
-const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
+const CodeCanvasView = ({ onContinue, refreshTrigger }: CodeCanvasViewProps) => {
   const { session } = useWorkflow();
   const [language, setLanguage] = useState<'python' | 'r'>('python');
   const [code, setCode] = useState<string>('');
@@ -22,33 +23,52 @@ const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load auto-generated code when session or language changes
-  useEffect(() => {
-    const loadGeneratedCode = async () => {
-      if (!session?.id) return;
+  // Load auto-generated code from latest UI workflow state
+  const loadGeneratedCode = useCallback(async () => {
+    if (!session?.id) {
+      setCode('// No active session. Please start by uploading data.');
+      setOriginalCode('// No active session. Please start by uploading data.');
+      return;
+    }
 
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await apiClient.generateCode(session.id, language, {
-          include_cleaning: true,
-          include_transforms: true,
-          include_analyses: true,
-        });
-        setCode(response.code);
-        setOriginalCode(response.code);
-        toast.success(`Generated ${language.toUpperCase()} code`);
-      } catch (err: any) {
-        console.error('Failed to generate code:', err);
-        setError(err.message || 'Failed to generate code');
-        toast.error('Failed to generate code');
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiClient.generateCode(session.id, language, {
+        include_cleaning: true,
+        include_transforms: true,
+        include_analyses: true,
+      });
+      setCode(response.code);
+      setOriginalCode(response.code);
+
+      if (response.operations_included && response.operations_included.length > 0) {
+        toast.success(`Generated ${language.toUpperCase()} code with ${response.operations_included.length} operations`);
+      } else {
+        toast.info(`Generated ${language.toUpperCase()} code (no operations yet)`);
       }
-    };
+    } catch (err: any) {
+      console.error('Failed to generate code:', err);
+      const errorMsg = err.message || 'Failed to generate code';
+      setError(errorMsg);
 
-    loadGeneratedCode();
+      // Provide helpful error message
+      if (errorMsg.includes('No session') || errorMsg.includes('404')) {
+        setCode('// Session not found. Please upload data first.');
+        setOriginalCode('// Session not found. Please upload data first.');
+        toast.error('Session not found. Start by uploading data.');
+      } else {
+        toast.error('Failed to generate code');
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [session?.id, language]);
+
+  // Load code when session, language, or refreshTrigger changes
+  useEffect(() => {
+    loadGeneratedCode();
+  }, [loadGeneratedCode, refreshTrigger]);
 
   const handleExecute = async () => {
     if (!session?.id || !code.trim()) {
@@ -85,7 +105,13 @@ const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
     setCode(originalCode);
     setResult(null);
     setError(null);
-    toast.info('Code reset to generated version');
+    toast.info('Code reset to last generated version');
+  };
+
+  const handleRefresh = () => {
+    setResult(null);
+    setError(null);
+    loadGeneratedCode();
   };
 
   const hasChanges = code !== originalCode;
@@ -119,11 +145,23 @@ const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
           <Button
             variant="outline"
             size="sm"
+            onClick={handleRefresh}
+            disabled={loading || executing}
+            title="Regenerate code from latest UI workflow changes"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleReset}
             disabled={!hasChanges || loading || executing}
+            title="Reset to last generated code"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Reset
+            Undo Changes
           </Button>
 
           <Button
@@ -146,7 +184,7 @@ const CodeCanvasView = ({ onContinue }: CodeCanvasViewProps) => {
         </div>
 
         <div className="text-sm text-muted-foreground">
-          Switch to UI Canvas to continue the workflow
+          {loading ? 'Generating code...' : hasChanges ? 'Code modified' : 'Switch to UI Canvas to continue the workflow'}
         </div>
       </div>
 

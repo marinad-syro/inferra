@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWorkflow } from "@/contexts/WorkflowContext";
 import AppLayout from "@/components/layout/AppLayout";
 import WorkflowSidebar from "@/components/workflow/WorkflowSidebar";
@@ -15,6 +15,14 @@ import ResultsView from "@/components/canvas/ResultsView";
 const Index = () => {
   const { currentStep, updateStep, sessionLoading } = useWorkflow();
   const [canvasMode, setCanvasMode] = useState<'ui' | 'code'>('ui');
+  const [codeRefreshTrigger, setCodeRefreshTrigger] = useState(0);
+
+  // Trigger code refresh when switching to code canvas mode
+  useEffect(() => {
+    if (canvasMode === 'code') {
+      setCodeRefreshTrigger(prev => prev + 1);
+    }
+  }, [canvasMode]);
 
   const handleStepChange = (step: number) => {
     updateStep(step);
@@ -23,7 +31,7 @@ const Index = () => {
   const renderMainContent = () => {
     // If in code mode, always show CodeCanvasView
     if (canvasMode === 'code') {
-      return <CodeCanvasView onContinue={() => setCanvasMode('ui')} />;
+      return <CodeCanvasView onContinue={() => setCanvasMode('ui')} refreshTrigger={codeRefreshTrigger} />;
     }
 
     // Otherwise show the current workflow step

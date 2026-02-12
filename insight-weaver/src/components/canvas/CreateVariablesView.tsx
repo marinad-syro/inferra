@@ -16,7 +16,7 @@ interface SuggestedVariable {
 }
 
 const CreateVariablesView = ({ onContinue }: CreateVariablesViewProps) => {
-  const { variables, addVariable, toggleVariable, deleteVariable, parsedData, session } = useWorkflow();
+  const { variables, addVariable, toggleVariable, deleteVariable, parsedData, session, columnDescriptions } = useWorkflow();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newVariable, setNewVariable] = useState({ name: '', formula: '', formula_type: 'eval', description: '' });
   const [generating, setGenerating] = useState(false);
@@ -56,6 +56,7 @@ const CreateVariablesView = ({ onContinue }: CreateVariablesViewProps) => {
         sampleRows: parsedData.rows.slice(0, 30),
         columns: parsedData.columns,
         researchQuestion: session?.research_question || undefined,
+        columnDescriptions,
       });
 
       if (suggestions && suggestions.length > 0) {
@@ -70,7 +71,7 @@ const CreateVariablesView = ({ onContinue }: CreateVariablesViewProps) => {
     } finally {
       setGenerating(false);
     }
-  }, [parsedData, session?.research_question]);
+  }, [parsedData, session?.research_question, columnDescriptions]);
 
   const handleAcceptSuggestion = async (suggestion: SuggestedVariable) => {
     await addVariable(suggestion);
@@ -124,7 +125,9 @@ const CreateVariablesView = ({ onContinue }: CreateVariablesViewProps) => {
                       <h4 className="text-sm font-medium text-foreground">{suggestion.name}</h4>
                       {suggestion.formula_type && (
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          suggestion.formula_type === 'transform'
+                          suggestion.formula_type === 'python'
+                            ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                            : suggestion.formula_type === 'transform'
                             ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
                             : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                         }`}>
@@ -217,7 +220,9 @@ const CreateVariablesView = ({ onContinue }: CreateVariablesViewProps) => {
                         <h4 className="text-sm font-medium text-foreground">{variable.name}</h4>
                         {variable.formula_type && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            variable.formula_type === 'transform'
+                            variable.formula_type === 'python'
+                              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                              : variable.formula_type === 'transform'
                               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
                               : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           }`}>
@@ -303,8 +308,9 @@ const CreateVariablesView = ({ onContinue }: CreateVariablesViewProps) => {
                   onChange={(e) => setNewVariable(prev => ({ ...prev, formula_type: e.target.value }))}
                   className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="eval">Eval - Simple Numeric Operations</option>
-                  <option value="transform">Transform - Advanced (Type Conversions, Composite Scores)</option>
+                  <option value="eval">Eval - Simple Numeric Operations (e.g., col1 + col2)</option>
+                  <option value="transform">Transform - Single-Line Functions (e.g., normalize('col'))</option>
+                  <option value="python">Python - Multi-Line Code (e.g., map then composite)</option>
                 </select>
               </div>
 

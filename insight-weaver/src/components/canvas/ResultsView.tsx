@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { PieChart, RefreshCw, ArrowLeft, Code, Play, Loader2, LineChart } from "lucide-react";
+import { PieChart, RefreshCw, ArrowLeft, Code, Loader2, LineChart } from "lucide-react";
 import { useWorkflow } from "@/contexts/WorkflowContext";
 import { generateAnalysisResult } from "@/lib/generateAnalysisResult";
 import AnalysisResultCard from "./results/AnalysisResultCard";
@@ -186,6 +186,7 @@ const ResultsView = () => {
   const [showCodeView, setShowCodeView] = useState(false);
   const [running, setRunning] = useState(false);
   const [backendResults, setBackendResults] = useState<any[]>([]);
+  const [hasAutoRun, setHasAutoRun] = useState(false);
 
   // Get selected analyses directly from the selections array
   const selectedAnalyses = selections.filter(s => s.is_selected);
@@ -247,84 +248,77 @@ const ResultsView = () => {
   }, [session]);
 
 
-  const handleRerunAnalysis = () => {
-    // Navigate back to Choose Analysis step
-    updateStep(5);
-  };
-
   // Run analyses using backend
   const handleRunAnalyses = useCallback(async () => {
     if (!uploadedFile?.storage_path) {
       toast.error("No dataset available to analyze");
-      console.error("No uploaded file or storage path:", uploadedFile);
       return;
     }
 
-    console.log("Starting analysis run...");
-    console.log("Storage path:", uploadedFile.storage_path);
-    console.log("Selected analyses:", selectedAnalyses);
+    if (selectedAnalyses.length === 0) {
+      toast.error("No analyses selected");
+      return;
+    }
 
     setRunning(true);
+    setBackendResults([]);
+
+    const datasetRef = uploadedFile.storage_path;
+
+    // Run all analyses in parallel so neither blocks the other
+    const analysisPromises = selectedAnalyses.map(analysis => {
+      const runParams = analysis.execution_spec
+        ? { dataset_reference: datasetRef, execution_spec: analysis.execution_spec }
+        : { dataset_reference: datasetRef, prompt: `Perform ${analysis.analysis_type} analysis on columns: ${analysis.selected_columns?.join(', ')}` };
+
+      return apiClient.runAnalysis(runParams).then(result => ({
+        status: 'fulfilled' as const,
+        analysis,
+        result,
+      })).catch(error => ({
+        status: 'rejected' as const,
+        analysis,
+        error,
+      }));
+    });
+
+    const settled = await Promise.all(analysisPromises);
+
     const analysisResults: any[] = [];
+    let failCount = 0;
 
-    try {
-      for (const analysis of selectedAnalyses) {
-        toast.info(`Running ${analysis.title}...`);
-
-        try {
-          // Build dataset reference (storage path)
-          const datasetRef = uploadedFile.storage_path;
-
-          console.log(`Running analysis: ${analysis.title}`);
-          console.log(`Dataset ref: ${datasetRef}`);
-          console.log(`Columns: ${analysis.selected_columns?.join(', ')}`);
-
-          // Run analysis via backend
-          // Use execution_spec if available (skips decision service), otherwise fall back to prompt
-          const runParams = analysis.execution_spec
-            ? {
-                dataset_reference: datasetRef,
-                execution_spec: analysis.execution_spec,
-              }
-            : {
-                dataset_reference: datasetRef,
-                prompt: `Perform ${analysis.analysis_type} analysis on columns: ${analysis.selected_columns?.join(', ')}`,
-              };
-
-          const result = await apiClient.runAnalysis(runParams);
-
-          console.log(`Analysis result:`, result);
-
-          // Transform backend results into frontend format
-          const transformedResult = transformAnalysisResult(
-            analysis.title,
-            analysis.description || '',
-            analysis.analysis_type,
-            result.results,
-            result.decision
-          );
-
-          analysisResults.push(transformedResult);
-
-          toast.success(`Completed ${analysis.title}`);
-        } catch (error: any) {
-          console.error(`Failed to run ${analysis.title}:`, error);
-          console.error(`Error details:`, error.response?.data || error.message);
-          toast.error(`Failed: ${error.response?.data?.detail?.message || error.message || 'Unknown error'}`);
-        }
+    settled.forEach(outcome => {
+      if (outcome.status === 'fulfilled') {
+        const transformed = transformAnalysisResult(
+          outcome.analysis.title,
+          outcome.analysis.description || '',
+          outcome.analysis.analysis_type,
+          outcome.result.results,
+          outcome.result.decision
+        );
+        analysisResults.push(transformed);
+      } else {
+        failCount++;
+        const msg = outcome.error?.message || 'Unknown error';
+        console.error(`Failed to run ${outcome.analysis.title}:`, outcome.error);
+        toast.error(`${outcome.analysis.title} failed: ${msg}`);
       }
+    });
 
-      setBackendResults(analysisResults);
-      if (analysisResults.length > 0) {
-        toast.success(`Completed ${analysisResults.length} analyses`);
-      }
-    } catch (error: any) {
-      console.error("Failed to run analyses:", error);
-      toast.error("Failed to run analyses");
-    } finally {
-      setRunning(false);
+    setBackendResults(analysisResults);
+    if (analysisResults.length > 0) {
+      toast.success(`Completed ${analysisResults.length} of ${selectedAnalyses.length} ${selectedAnalyses.length === 1 ? 'analysis' : 'analyses'}`);
     }
-  }, [selectedAnalyses, uploadedFile, parsedData]);
+    setRunning(false);
+  }, [selectedAnalyses, uploadedFile]);
+
+  // Auto-run when landing on the Results tab
+  useEffect(() => {
+    if (!hasAutoRun && selectedAnalyses.length > 0 && uploadedFile?.storage_path && !running) {
+      setHasAutoRun(true);
+      handleRunAnalyses();
+    }
+  }, [hasAutoRun, selectedAnalyses.length, uploadedFile?.storage_path]);
 
   // Show code view if requested
   if (showCodeView) {
@@ -339,10 +333,33 @@ const ResultsView = () => {
           <PieChart className="w-5 h-5" />
           <span className="text-sm font-medium">Step 6 of 7</span>
         </div>
-        <h2 className="text-2xl font-semibold text-foreground">Results</h2>
-        <p className="text-muted-foreground mt-1">
-          Run analyses and review statistical results. Proceed to visualizations for publication-ready figures.
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-foreground">Results</h2>
+            <p className="text-muted-foreground mt-1">
+              Statistical results from your selected analyses.
+            </p>
+          </div>
+          {selectedAnalyses.length > 0 && (
+            <button
+              onClick={handleRunAnalyses}
+              disabled={running}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {running ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Running...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  Rerun
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Data Summary */}
@@ -381,31 +398,12 @@ const ResultsView = () => {
         </div>
       )}
 
-      {/* Run Analyses Button */}
-      {selectedAnalyses.length > 0 && backendResults.length === 0 && (
-        <div className="card-section mb-6 border-primary/30">
-          <div className="text-center">
-            <h3 className="text-base font-semibold text-foreground mb-2">Ready to Run Analyses</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Click below to execute {selectedAnalyses.length} statistical {selectedAnalyses.length === 1 ? 'analysis' : 'analyses'} using scipy and statsmodels
-            </p>
-            <button
-              onClick={handleRunAnalyses}
-              disabled={running}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {running ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Running Analyses...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Run Analyses
-                </>
-              )}
-            </button>
+      {/* Loading state */}
+      {running && (
+        <div className="card-section mb-6 border-primary/20">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            Running {selectedAnalyses.length} {selectedAnalyses.length === 1 ? 'analysis' : 'analyses'}...
           </div>
         </div>
       )}
@@ -453,13 +451,6 @@ const ResultsView = () => {
             >
               <Code className="w-4 h-4" />
               View Code
-            </button>
-            <button
-              onClick={handleRerunAnalysis}
-              className="flex items-center gap-2 px-4 py-2 border border-input text-foreground text-sm font-medium rounded-lg hover:bg-accent transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Re-run Analysis
             </button>
           </div>
         </div>

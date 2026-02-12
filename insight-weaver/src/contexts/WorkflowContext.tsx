@@ -5,6 +5,7 @@ import { useTrialStructure, TrialStructure } from '@/hooks/useTrialStructure';
 import { useDerivedVariables, DerivedVariable } from '@/hooks/useDerivedVariables';
 import { useAnalysisSelections, AnalysisSelection, SuggestedAnalysis } from '@/hooks/useAnalysisSelections';
 import { useDataWrangling, WranglingConfig } from '@/hooks/useDataWrangling';
+import { useColumnDescriptions, ColumnDescriptions } from '@/hooks/useColumnDescriptions';
 
 interface WorkflowContextType {
   // Session
@@ -57,6 +58,7 @@ interface WorkflowContextType {
     hasOutliers?: boolean;
     derivedVariables?: { name: string; formula?: string }[];
     trialsDetected?: number;
+    columnDescriptions?: Record<string, string>;
   }) => Promise<SuggestedAnalysis[]>;
   toggleSelection: (analysisType: string) => Promise<void>;
   updateSelectedColumns: (analysisType: string, columns: string[]) => Promise<void>;
@@ -64,6 +66,10 @@ interface WorkflowContextType {
   
   // Wrangling config
   wranglingConfig: WranglingConfig | null;
+
+  // Column descriptions (user-written, included in all LLM calls)
+  columnDescriptions: ColumnDescriptions;
+  updateColumnDescription: (column: string, description: string) => void;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
@@ -110,6 +116,9 @@ export const WorkflowProvider: React.FC<{ children: ReactNode }> = ({ children }
   
   const { config: wranglingConfig } = useDataWrangling(session?.id);
 
+  const { descriptions: columnDescriptions, updateDescription: updateColumnDescription } =
+    useColumnDescriptions(session?.id, allColumns);
+
   const value: WorkflowContextType = {
     session,
     sessionLoading,
@@ -142,6 +151,8 @@ export const WorkflowProvider: React.FC<{ children: ReactNode }> = ({ children }
     updateSelectedColumns,
     getSelectedAnalyses,
     wranglingConfig,
+    columnDescriptions,
+    updateColumnDescription,
   };
 
   return (

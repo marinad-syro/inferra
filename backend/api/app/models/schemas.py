@@ -560,6 +560,9 @@ class CodeExecutionResponse(BaseModel):
     column_names: Optional[List[str]] = Field(None, description="Column names in result")
     column_types: Optional[Dict[str, str]] = Field(None, description="Column types in result")
     dataset: Optional[List[Dict[str, Any]]] = Field(None, description="Result dataset")
+    console_output: Optional[str] = Field(None, description="Captured print/console output")
+    plots: Optional[List[str]] = Field(None, description="Base64-encoded plot images")
+    analysis_results: Optional[Dict[str, Any]] = Field(None, description="Structured analysis results")
     error: Optional[str] = Field(None, description="Error message if failed")
     traceback: Optional[str] = Field(None, description="Error traceback if failed")
 

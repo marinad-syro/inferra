@@ -1,6 +1,7 @@
 """LLM proxy endpoint for centralized LLM access."""
 
 import logging
+import time
 from typing import Union
 
 from fastapi import APIRouter, HTTPException, status
@@ -47,7 +48,8 @@ async def llm_proxy(request: LLMProxyRequest) -> Union[LLMProxyResponse, LLMReas
         HTTPException: If LLM call fails
     """
     try:
-        logger.info(f"LLM proxy request: {request.prompt[:100]}...")
+        route_start = time.perf_counter()
+        logger.info(f"[TIMING] llm_proxy: request received, prompt_len={len(request.prompt)}, has_dataset={request.dataset_reference is not None}")
 
         # Handle reasoning model request
         if request.use_reasoning:
@@ -92,6 +94,7 @@ async def llm_proxy(request: LLMProxyRequest) -> Union[LLMProxyResponse, LLMReas
         # Handle file-based query (dataset upload)
         if request.dataset_reference:
             logger.info(f"Using file-based query with dataset: {request.dataset_reference}")
+            llm_start = time.perf_counter()
             response = await llm_adapter.call_llm_with_dataset(
                 prompt=request.prompt,
                 dataset_path=request.dataset_reference,
@@ -100,8 +103,11 @@ async def llm_proxy(request: LLMProxyRequest) -> Union[LLMProxyResponse, LLMReas
                 temperature=request.temperature,
                 model=request.model
             )
+            llm_ms = (time.perf_counter() - llm_start) * 1000
+            logger.info(f"[TIMING] call_llm_with_dataset total: {llm_ms:.0f} ms  (XAI-reported inference: {response.latency_ms:.0f} ms, overhead: {llm_ms - response.latency_ms:.0f} ms)")
         else:
             # Standard LLM call
+            llm_start = time.perf_counter()
             response = await llm_adapter.call_llm(
                 prompt=request.prompt,
                 context=request.context,
@@ -110,6 +116,8 @@ async def llm_proxy(request: LLMProxyRequest) -> Union[LLMProxyResponse, LLMReas
                 temperature=request.temperature,
                 model=request.model
             )
+            llm_ms = (time.perf_counter() - llm_start) * 1000
+            logger.info(f"[TIMING] call_llm total: {llm_ms:.0f} ms  (XAI-reported: {response.latency_ms:.0f} ms)")
 
         # Log to Supabase (non-blocking, best effort)
         try:
@@ -127,6 +135,8 @@ async def llm_proxy(request: LLMProxyRequest) -> Union[LLMProxyResponse, LLMReas
         except Exception as e:
             logger.warning(f"Failed to log LLM call: {str(e)}")
 
+        route_ms = (time.perf_counter() - route_start) * 1000
+        logger.info(f"[TIMING] llm_proxy route total: {route_ms:.0f} ms")
         return response
 
     except Exception as e:

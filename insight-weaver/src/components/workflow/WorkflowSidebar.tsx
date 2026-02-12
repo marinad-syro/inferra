@@ -17,8 +17,8 @@ interface WorkflowStep {
 
 const steps: WorkflowStep[] = [
   { id: 1, label: "Upload Data", icon: <Upload className="w-4 h-4" /> },
-  { id: 2, label: "Wrangling & Cleaning", icon: <Wrench className="w-4 h-4" /> },
-  { id: 3, label: "Parse Events", icon: <FileText className="w-4 h-4" /> },
+  { id: 2, label: "Data Cleaning", icon: <Wrench className="w-4 h-4" /> },
+  { id: 3, label: "Describe Columns", icon: <FileText className="w-4 h-4" /> },
   { id: 4, label: "Create Variables", icon: <Variable className="w-4 h-4" /> },
   { id: 5, label: "Choose Analysis", icon: <BarChart3 className="w-4 h-4" /> },
   { id: 6, label: "Results", icon: <PieChart className="w-4 h-4" /> },

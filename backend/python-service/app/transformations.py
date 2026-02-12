@@ -82,6 +82,11 @@ class TransformationLibrary:
             raise ValueError(f"Column '{column}' not found in dataset")
 
         col = df[column]
+
+        # Check if column is numeric
+        if not pd.api.types.is_numeric_dtype(col):
+            raise ValueError(f"Column '{column}' must be numeric for normalization. Found type: {col.dtype}")
+
         col_min = col.min()
         col_max = col.max()
 
@@ -123,7 +128,7 @@ class TransformationLibrary:
     @staticmethod
     def composite_score(
         df: pd.DataFrame,
-        columns: List[str],
+        columns: list,
         weights: Optional[List[float]] = None,
         normalize_first: bool = True
     ) -> pd.Series:
@@ -132,7 +137,7 @@ class TransformationLibrary:
 
         Args:
             df: Input dataframe
-            columns: List of column names to combine
+            columns: List of column name strings OR pre-computed Series objects (or a mix)
             weights: List of weights for each column (default: equal weights)
             normalize_first: Whether to normalize each column before combining (default: True)
 
@@ -141,18 +146,30 @@ class TransformationLibrary:
 
         Example:
             composite_score(['Stroop_Score', 'Flanker_Score'], weights=[0.6, 0.4])
+            composite_score([numeric_series, 'Flanker_Score'], weights=[0.5, 0.5])
         """
-        # Validate columns exist
+        # Resolve each element to a Series (accept both column names and Series directly)
+        resolved = []
         for col in columns:
-            if col not in df.columns:
-                raise ValueError(f"Column '{col}' not found in dataset")
+            if isinstance(col, pd.Series):
+                series = col.reset_index(drop=True)
+            elif isinstance(col, str):
+                if col not in df.columns:
+                    raise ValueError(f"Column '{col}' not found in dataset")
+                series = df[col]
+            else:
+                raise ValueError(f"columns must be column name strings or Series, got {type(col)}")
+
+            if not pd.api.types.is_numeric_dtype(series):
+                raise ValueError(f"Column must be numeric for composite score. Found type: {series.dtype}")
+            resolved.append(series)
 
         # Default to equal weights
         if weights is None:
-            weights = [1.0 / len(columns)] * len(columns)
+            weights = [1.0 / len(resolved)] * len(resolved)
 
-        if len(weights) != len(columns):
-            raise ValueError(f"Number of weights ({len(weights)}) must match number of columns ({len(columns)})")
+        if len(weights) != len(resolved):
+            raise ValueError(f"Number of weights ({len(weights)}) must match number of columns ({len(resolved)})")
 
         # Normalize weights to sum to 1
         total_weight = sum(weights)
@@ -160,19 +177,22 @@ class TransformationLibrary:
             raise ValueError("Sum of weights cannot be zero")
         weights = [w / total_weight for w in weights]
 
-        # Normalize each column if requested
+        # Normalize each series if requested
         if normalize_first:
-            normalized_cols = [
-                TransformationLibrary.normalize(df, col, min_val=0, max_val=1)
-                for col in columns
-            ]
+            normalized_cols = []
+            for series in resolved:
+                col_min, col_max = series.min(), series.max()
+                if col_max == col_min:
+                    normalized_cols.append(pd.Series([0.0] * len(series), index=series.index))
+                else:
+                    normalized_cols.append((series - col_min) / (col_max - col_min))
         else:
-            normalized_cols = [df[col] for col in columns]
+            normalized_cols = resolved
 
         # Calculate weighted sum
         result = pd.Series([0.0] * len(df), index=df.index)
-        for col, weight in zip(normalized_cols, weights):
-            result += weight * col
+        for series, weight in zip(normalized_cols, weights):
+            result += weight * series.values
 
         return result
 

@@ -215,8 +215,13 @@ class LLMAdapter:
         if self.client is None:
             raise Exception("XAI client not initialized (placeholder credentials)")
 
-        # Upload dataset
+        import time as _time
+        _t0 = _time.perf_counter()
+
+        # Upload dataset (may be cached)
         file_id = await self.upload_dataset(dataset_path)
+        _t1 = _time.perf_counter()
+        logger.info(f"[TIMING] upload_dataset: {(_t1 - _t0)*1000:.0f} ms  (path={dataset_path})")
 
         # Construct full prompt with context
         full_prompt = prompt
@@ -228,20 +233,26 @@ class LLMAdapter:
         use_model = model or self.fast_model
 
         try:
+            # Log exactly what is being sent to XAI
+            logger.info(
+                f"[LLM INPUT] model={use_model}\n"
+                f"  dataset file: {dataset_path}  (uploaded as XAI file_id={file_id})\n"
+                f"  prompt ({len(full_prompt)} chars):\n"
+                f"{'='*60}\n{full_prompt}\n{'='*60}"
+            )
+
             # Create chat
+            _t2 = _time.perf_counter()
             chat = self.client.chat.create(model=use_model)
-
-            # Append message with file attachment
             chat.append(user(full_prompt, file(file_id)))
+            _t3 = _time.perf_counter()
+            logger.info(f"[TIMING] chat.create + append: {(_t3 - _t2)*1000:.0f} ms")
 
-            # Measure latency
-            import time
-            start_time = time.time()
-
-            # Sample response
+            # XAI inference
+            start_time = _time.time()
             response = await chat.sample()
-
-            elapsed_ms = (time.time() - start_time) * 1000
+            elapsed_ms = (_time.time() - start_time) * 1000
+            logger.info(f"[TIMING] chat.sample (XAI inference): {elapsed_ms:.0f} ms  tokens={response.usage.total_tokens}")
 
             # Create response object
             usage = LLMUsage(

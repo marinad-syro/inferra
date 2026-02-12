@@ -64,15 +64,69 @@ function(req, res) {
     }
   }
 
-  # Create isolated environment
-  env <- new.env(parent = emptyenv())
+  # Load dataset if provided
+  df <- NULL
+  if (!is.null(dataset_reference)) {
+    tryCatch({
+      # Load CSV file
+      if (grepl("\\.csv$", dataset_reference, ignore.case = TRUE)) {
+        df <- read.csv(dataset_reference, stringsAsFactors = FALSE)
+      } else if (grepl("\\.json$", dataset_reference, ignore.case = TRUE)) {
+        df <- fromJSON(dataset_reference)
+      } else {
+        # Try CSV by default
+        df <- read.csv(dataset_reference, stringsAsFactors = FALSE)
+      }
+      message("Loaded dataset: ", nrow(df), " rows, ", ncol(df), " columns")
+    }, error = function(e) {
+      res$status <- 500
+      return(list(
+        success = FALSE,
+        error = paste("Failed to load dataset:", as.character(e))
+      ))
+    })
+  }
 
-  # Load safe libraries into environment
-  env$dplyr <- dplyr
-  env$tidyr <- tidyr
-  env$stats <- stats
-  env$base <- base
+  # Create isolated environment with base R as parent
+  # This provides operators like <-, +, -, etc.
+  env <- new.env(parent = baseenv())
+
+  # Set df in environment
+  env$df <- df
+
+  # dplyr functions
   env$`%>%` <- dplyr::`%>%`
+  env$mutate <- dplyr::mutate
+  env$select <- dplyr::select
+  env$filter <- dplyr::filter
+  env$arrange <- dplyr::arrange
+  env$group_by <- dplyr::group_by
+  env$summarise <- dplyr::summarise
+  env$summarize <- dplyr::summarize
+  env$rename <- dplyr::rename
+  env$slice <- dplyr::slice
+  env$pull <- dplyr::pull
+  env$count <- dplyr::count
+  env$distinct <- dplyr::distinct
+  env$left_join <- dplyr::left_join
+  env$right_join <- dplyr::right_join
+  env$inner_join <- dplyr::inner_join
+  env$full_join <- dplyr::full_join
+  env$anti_join <- dplyr::anti_join
+  env$semi_join <- dplyr::semi_join
+  env$case_when <- dplyr::case_when
+  env$recode <- dplyr::recode
+  env$n <- dplyr::n
+  env$row_number <- dplyr::row_number
+
+  # tidyr functions
+  env$pivot_longer <- tidyr::pivot_longer
+  env$pivot_wider <- tidyr::pivot_wider
+  env$drop_na <- tidyr::drop_na
+  env$replace_na <- tidyr::replace_na
+  env$fill <- tidyr::fill
+  env$separate <- tidyr::separate
+  env$unite <- tidyr::unite
 
   # Basic R functions needed for data manipulation
   env$c <- c
@@ -150,6 +204,12 @@ function(req, res) {
   env$normalize <- function(df, column, min_val = 0, max_val = 1) {
     # Min-max normalization
     col <- df[[column]]
+
+    # Check if column is numeric
+    if (!is.numeric(col)) {
+      stop(paste0("Column '", column, "' must be numeric for normalization. Found type: ", class(col)[1]))
+    }
+
     col_min <- min(col, na.rm = TRUE)
     col_max <- max(col, na.rm = TRUE)
     if (col_max == col_min) {
@@ -172,6 +232,15 @@ function(req, res) {
 
   env$composite_score <- function(df, columns, weights = NULL, normalize_first = TRUE) {
     # Calculate weighted composite score
+
+    # Validate columns are numeric
+    for (column in columns) {
+      col <- df[[column]]
+      if (!is.numeric(col)) {
+        stop(paste0("Column '", column, "' must be numeric for composite score. Found type: ", class(col)[1]))
+      }
+    }
+
     if (is.null(weights)) {
       weights <- rep(1.0 / length(columns), length(columns))
     }
@@ -242,13 +311,27 @@ function(req, res) {
     return(col)
   }
 
+  # Preprocess code to remove library imports (they're already loaded)
+  code_lines <- strsplit(code, "\n")[[1]]
+  processed_lines <- sapply(code_lines, function(line) {
+    trimmed <- trimws(line)
+    # Comment out library() and require() calls for packages we already provide
+    if (grepl("^library\\s*\\(\\s*(dplyr|tidyr|ggplot2|stats|base)", trimmed, ignore.case = TRUE) ||
+        grepl("^require\\s*\\(\\s*(dplyr|tidyr|ggplot2|stats|base)", trimmed, ignore.case = TRUE)) {
+      paste0("# ", line)
+    } else {
+      line
+    }
+  }, USE.NAMES = FALSE)
+  processed_code <- paste(processed_lines, collapse = "\n")
+
   # Execute code with error handling and timeout
   result <- tryCatch({
     # Set timeout (30 seconds)
     setTimeLimit(cpu = 30, elapsed = 30, transient = TRUE)
 
     # Parse and evaluate code
-    parsed_code <- parse(text = code)
+    parsed_code <- parse(text = processed_code)
     eval(parsed_code, envir = env)
 
     # Reset timeout

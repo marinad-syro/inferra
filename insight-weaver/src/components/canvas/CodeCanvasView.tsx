@@ -81,10 +81,17 @@ const CodeCanvasView = ({ onContinue, refreshTrigger }: CodeCanvasViewProps) => 
     setResult(null);
 
     try {
-      const response = await apiClient.executeCode(session.id, code, language);
+      // Get dataset reference from session
+      const datasetReference = session.dataset_reference;
+
+      const response = await apiClient.executeCode(session.id, code, language, datasetReference);
 
       if (response.success) {
         setResult(response);
+        console.log('Code execution response:', response);
+        console.log('Console output:', response.console_output);
+        console.log('Plots:', response.plots?.length);
+        console.log('Analysis results:', response.analysis_results);
         toast.success(
           `Code executed successfully! Dataset: ${response.row_count} rows × ${response.column_names?.length} columns`
         );
@@ -119,7 +126,7 @@ const CodeCanvasView = ({ onContinue, refreshTrigger }: CodeCanvasViewProps) => 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b bg-background">
+      <div className="flex items-center justify-between p-3 border-b bg-background">
         <div className="flex items-center gap-3">
           {/* Language Selector */}
           <div className="flex gap-1 border rounded-md p-1">
@@ -188,93 +195,177 @@ const CodeCanvasView = ({ onContinue, refreshTrigger }: CodeCanvasViewProps) => 
         </div>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-primary" />
-              <p className="text-sm text-muted-foreground">Generating code...</p>
+      {/* Main Content - Split Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Code Editor */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-primary" />
+                <p className="text-sm text-muted-foreground">Generating code...</p>
+              </div>
+            </div>
+          ) : (
+            <Editor
+              height="100%"
+              language={language === 'python' ? 'python' : 'r'}
+              value={code}
+              onChange={(value) => setCode(value || '')}
+              theme="vs-dark"
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: language === 'python' ? 4 : 2,
+                insertSpaces: true,
+                wordWrap: 'on',
+                padding: { top: 16, bottom: 16 },
+              }}
+            />
+          )}
+
+          {/* Status Bar */}
+          <div className="border-t bg-muted/30 px-4 py-2 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-4 text-muted-foreground">
+              <span className="font-medium">{language.toUpperCase()}</span>
+              <span>{code.split('\n').length} lines</span>
+              {hasChanges && <span className="text-orange-600">• Modified</span>}
             </div>
           </div>
-        ) : (
-          <Editor
-            height="100%"
-            language={language === 'python' ? 'python' : 'r'}
-            value={code}
-            onChange={(value) => setCode(value || '')}
-            theme="vs-dark"
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: 'on',
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              tabSize: language === 'python' ? 4 : 2,
-              insertSpaces: true,
-              wordWrap: 'on',
-              padding: { top: 16, bottom: 16 },
-            }}
-          />
-        )}
+        </div>
 
-        {/* Status Bar */}
-        <div className="border-t bg-muted/30 px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="font-medium">{language.toUpperCase()}</span>
-            <span>
-              {code.split('\n').length} lines
-            </span>
-            {hasChanges && (
-              <span className="text-orange-600">• Modified</span>
+        {/* Right: Output Panel */}
+        <div className="w-96 border-l flex flex-col bg-muted/5">
+          <div className="p-3 border-b bg-muted/30">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Code2 className="h-4 w-4" />
+              Output
+            </h3>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {!result && !error && (
+              <div className="text-center text-muted-foreground text-sm py-8">
+                <Code2 className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>Run code to see output</p>
+              </div>
+            )}
+
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="font-semibold mb-2">Execution Error</div>
+                  <pre className="text-xs overflow-x-auto whitespace-pre-wrap font-mono bg-black/10 p-2 rounded">
+                    {error}
+                  </pre>
+                  {result?.console_output && (
+                    <div className="mt-3">
+                      <div className="font-semibold mb-1 text-xs">Console Output (before error):</div>
+                      <pre className="text-xs bg-black/10 p-2 rounded font-mono overflow-x-auto whitespace-pre-wrap max-h-48">
+                        {result.console_output}
+                      </pre>
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {result && !error && (
+              <div className="space-y-4">
+                {/* Success Status */}
+                <div className="flex items-center gap-2 text-green-600 bg-green-50 dark:bg-green-950/20 p-3 rounded-lg">
+                  <CheckCircle2 className="h-5 w-5" />
+                  <span className="font-semibold text-sm">Executed Successfully</span>
+                </div>
+
+                {/* Dataset Info */}
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-2">DATASET</h4>
+                  <div className="bg-background border rounded-lg p-3 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Rows:</span>
+                      <span className="font-mono font-semibold">{result.row_count}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Columns:</span>
+                      <span className="font-mono font-semibold">{result.column_names?.length}</span>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs">
+                    <div className="text-muted-foreground mb-1">Column names:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {result.column_names?.map((col: string) => (
+                        <code key={col} className="px-2 py-0.5 bg-primary/10 rounded text-xs">
+                          {col}
+                        </code>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Analysis Results */}
+                {result.analysis_results && Object.keys(result.analysis_results).length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">ANALYSIS RESULTS</h4>
+                    <div className="bg-background border rounded-lg p-3 space-y-2 text-sm">
+                      {Object.entries(result.analysis_results).map(([key, value]) => (
+                        <div key={key} className="border-b last:border-b-0 pb-2 last:pb-0">
+                          <div className="text-xs font-semibold text-primary mb-1">{key}</div>
+                          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">
+                            {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Plots/Visualizations */}
+                {result.plots && result.plots.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                      VISUALIZATIONS ({result.plots.length})
+                    </h4>
+                    <div className="space-y-3">
+                      {result.plots.map((plot, idx) => (
+                        <div key={idx} className="bg-background border rounded-lg p-2 overflow-hidden">
+                          <img
+                            src={`data:image/png;base64,${plot}`}
+                            alt={`Plot ${idx + 1}`}
+                            className="w-full h-auto"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Console Output - Always show if exists, even if empty */}
+                {result.console_output !== undefined && result.console_output !== null && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                      CONSOLE OUTPUT
+                      {result.console_output.trim() === '' && <span className="ml-2 text-xs text-muted-foreground/50">(empty)</span>}
+                    </h4>
+                    {result.console_output.trim() ? (
+                      <pre className="text-xs bg-black dark:bg-black/50 text-green-400 p-3 rounded-lg font-mono overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto border border-green-900/20">
+{result.console_output}</pre>
+                    ) : (
+                      <div className="text-xs text-muted-foreground italic p-3 bg-muted/20 rounded-lg border">
+                        No console output (no print statements)
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-
-          {result && (
-            <div className="flex items-center gap-2 text-sm text-green-600">
-              <CheckCircle2 className="h-4 w-4" />
-              <span>
-                Last execution: {result.row_count} rows × {result.column_names?.length} columns
-              </span>
-            </div>
-          )}
         </div>
       </div>
-
-      {/* Result/Error Display */}
-      {error && (
-        <div className="p-4 border-t bg-destructive/5">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              <div className="font-semibold mb-1">Execution Error</div>
-              <pre className="text-xs mt-2 overflow-x-auto whitespace-pre-wrap font-mono">
-                {error}
-              </pre>
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
-
-      {result && !error && (
-        <div className="p-4 border-t bg-green-50 dark:bg-green-950/20">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
-            <div className="flex-1">
-              <div className="font-semibold text-green-900 dark:text-green-100 mb-1">
-                Code Executed Successfully
-              </div>
-              <div className="text-sm text-green-800 dark:text-green-200">
-                <div>Dataset updated:</div>
-                <ul className="list-disc list-inside mt-1">
-                  <li>{result.row_count} rows</li>
-                  <li>{result.column_names?.length} columns: {result.column_names?.join(', ')}</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -21,9 +21,9 @@ class Settings(BaseSettings):
 
     # XAI SDK Configuration
     xai_api_key: str = Field(..., description="XAI/Grok API key")
-    xai_model: str = Field(default="grok-3", description="Default XAI model to use")
+    xai_model: str = Field(default="grok-3-fast", description="Default XAI model to use")
     xai_reasoning_model: str = Field(default="grok-3-mini", description="Reasoning model for complex decisions")
-    xai_fast_model: str = Field(default="grok-4-fast", description="Fast model for file-based queries")
+    xai_fast_model: str = Field(default="grok-3-fast", description="Fast model for file-based queries")
 
     # Internal Services
     python_service_url: str = Field(

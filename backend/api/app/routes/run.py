@@ -149,7 +149,13 @@ async def run_analysis(request: AnalysisRequest):
                 logger.warning(f"[DIAGNOSTIC] Could not read columns: {e}")
 
         # Step 4: Determine how to run the analysis
-        python_service_url = f"{settings.python_service_url}/analyze"
+        # IMPORTANT: All analyses use Python service (port 8001), never R service
+        python_service_url = settings.python_service_url
+        if not python_service_url:
+            python_service_url = "http://localhost:8001"
+
+        analyze_endpoint = f"{python_service_url}/analyze"
+        logger.info(f"Using Python service for analysis: {analyze_endpoint}")
 
         if request.execution_spec:
             # Use execution_spec directly — skip decision service entirely
@@ -240,10 +246,10 @@ async def run_analysis(request: AnalysisRequest):
                 "job_id": "temp"
             }
 
-        logger.info(f"Forwarding to python-service: {decision.library}.{decision.function}")
+        logger.info(f"Forwarding to python-service at {analyze_endpoint}: {decision.library}.{decision.function}")
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(python_service_url, json=payload)
+            response = await client.post(analyze_endpoint, json=payload)
 
             if response.status_code != 200:
                 error_msg = f"Python service error: {response.status_code} - {response.text}"

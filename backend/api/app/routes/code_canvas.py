@@ -20,6 +20,7 @@ from app.models.schemas import (
 from app.config.settings import settings
 from app.services.database import database_service
 from app.services.code_generator import code_generator
+from app.services.dataset_versions import dataset_version_service
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +69,13 @@ async def generate_code(
         # Fetch analyses (from selections)
         analyses = None
         if include_analyses:
-            selections = await database_service.get_analysis_selections(session_id)
-            if selections and len(selections) > 0:
-                # Filter for selections that have been run (have results)
-                # For now, include all selections
-                analyses = selections
-                operations_included.append("analyses")
+            all_selections = await database_service.get_analysis_selections(session_id)
+            if all_selections and len(all_selections) > 0:
+                # Only include analyses that user has explicitly selected
+                selected_analyses = [s for s in all_selections if s.get('is_selected', False)]
+                if selected_analyses and len(selected_analyses) > 0:
+                    analyses = selected_analyses
+                    operations_included.append("analyses")
 
         # Generate code
         code = code_generator.generate_full_script(
@@ -108,6 +110,8 @@ async def execute_code(session_id: str, request: CodeExecutionRequest):
     Routes the request to the appropriate service based on language:
     - Python: Python service (port 8001)
     - R: R service (port 8002)
+
+    Creates a new dataset version if execution succeeds.
     """
     try:
         # Validate session exists
@@ -118,11 +122,22 @@ async def execute_code(session_id: str, request: CodeExecutionRequest):
                 detail={"error_code": "SESSION_NOT_FOUND", "message": f"Session {session_id} not found"}
             )
 
+        # Get current dataset version
+        current_version = await dataset_version_service.get_current_version(session_id)
+        if not current_version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error_code": "NO_DATASET", "message": "No dataset found for this session. Please upload a dataset first."}
+            )
+
+        dataset_reference = current_version['dataset_reference']
+        logger.info(f"Loading dataset from version {current_version['version_number']}: {dataset_reference}")
+
         # Route to appropriate service based on language
         if request.language == CodeLanguage.PYTHON:
-            service_url = settings.PYTHON_SERVICE_URL or "http://localhost:8001"
+            service_url = settings.python_service_url or "http://localhost:8001"
         elif request.language == CodeLanguage.R:
-            service_url = settings.R_SERVICE_URL or "http://localhost:8002"
+            service_url = settings.r_service_url or "http://localhost:8002"
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -139,14 +154,47 @@ async def execute_code(session_id: str, request: CodeExecutionRequest):
                 json={
                     "code": request.code,
                     "session_id": session_id,
-                    "dataset_reference": request.dataset_reference
+                    "dataset_reference": dataset_reference
                 }
             )
             result = response.json()
 
-        # Return the response from the execution service
+        # If execution succeeded, create a new dataset version
         if result.get("success"):
             logger.info(f"Code execution succeeded: {result.get('row_count')} rows")
+
+            # Save result dataset to CSV file
+            import tempfile
+            import csv
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv')
+            temp_path = temp_file.name
+
+            # Write CSV data from result dataset
+            if result['dataset'] and len(result['dataset']) > 0:
+                writer = csv.DictWriter(temp_file, fieldnames=result['column_names'])
+                writer.writeheader()
+                writer.writerows(result['dataset'])
+            temp_file.close()
+
+            # Create new version
+            new_version = await dataset_version_service.create_version(
+                session_id=session_id,
+                dataset_path=temp_path,
+                row_count=result['row_count'],
+                column_names=result['column_names'],
+                source='code_canvas',
+                description=f"Code execution ({request.language})",
+                code_snapshot=request.code,
+                operation_metadata={
+                    "language": request.language.value,
+                    "previous_row_count": current_version['row_count'],
+                    "new_row_count": result['row_count']
+                },
+                parent_version_id=current_version['id']
+            )
+
+            logger.info(f"Created new dataset version {new_version['version_number']}")
+
             return CodeExecutionResponse(**result)
         else:
             logger.error(f"Code execution failed: {result.get('error')}")

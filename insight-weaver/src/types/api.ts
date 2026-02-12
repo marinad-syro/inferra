@@ -123,6 +123,7 @@ export interface SuggestAnalysesRequest {
   hasOutliers?: boolean;
   derivedVariables?: { name: string; formula?: string }[];
   trialsDetected?: number;
+  columnDescriptions?: Record<string, string>;
 }
 
 /**
@@ -153,6 +154,7 @@ export interface SuggestVariablesRequest {
   sampleRows: Record<string, unknown>[];
   columns: string[];
   researchQuestion?: string;
+  columnDescriptions?: Record<string, string>;
 }
 
 /**

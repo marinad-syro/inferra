@@ -47,14 +47,33 @@ async def create_variable(session_id: str, request: DerivedVariableCreate):
     Creates a derived variable with the specified formula and metadata.
     """
     try:
+        # Validate required fields
+        if not request.name or not request.name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "INVALID_NAME", "message": "Variable name is required"}
+            )
+
+        if not request.formula or not request.formula.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error_code": "INVALID_FORMULA", "message": "Variable formula is required"}
+            )
+
+        logger.info(f"Creating variable '{request.name}' with formula: {request.formula[:100]}...")
+
         variable_data = request.model_dump(exclude_none=True)
         variable = await database_service.create_derived_variable(
             session_id,
             variable_data
         )
+
+        logger.info(f"Successfully created variable: {variable.get('id')}")
         return variable
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to create variable: {str(e)}")
+        logger.error(f"Failed to create variable '{request.name}': {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error_code": "VARIABLE_CREATE_FAILED", "message": str(e)}

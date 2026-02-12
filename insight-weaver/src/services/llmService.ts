@@ -106,17 +106,13 @@ export async function suggestAnalyses(
   try {
     console.log('Requesting analysis suggestions from FastAPI backend...');
 
-    // Upload dataset
-    const filePath = await uploadDataset(context.sampleRows, 'analysis-data.csv');
-
-    // Build prompts
+    // Build prompts (sample rows included as text)
     const userPrompt = buildAnalysisPrompt(context);
     const fullPrompt = `${SUGGEST_ANALYSES_SYSTEM_PROMPT}\n\n${userPrompt}`;
 
-    // Call LLM with dataset
+    // Standard LLM call (no file upload)
     const llmRequest: LLMProxyRequest = {
       prompt: fullPrompt,
-      dataset_reference: filePath,
       max_tokens: 2000,
       temperature: 0.7,
     };
@@ -146,36 +142,42 @@ export async function suggestVariables(
   context: SuggestVariablesRequest
 ): Promise<SuggestedVariable[]> {
   try {
-    console.log('Requesting variable suggestions from FastAPI backend...');
+    const t0 = performance.now();
+    console.group('[suggestVariables] timing breakdown');
+    console.log(`rows: ${context.sampleRows.length}, columns: ${context.columns.length}`);
 
-    // Upload dataset (first 30 rows as in Edge Function)
-    const sampleRows = context.sampleRows.slice(0, 30);
-    const filePath = await uploadDataset(sampleRows, 'variables-data.csv');
-
-    // Build prompts
-    const userPrompt = buildVariablesPrompt(context);
+    // ── Step 1: Build prompt (5 sample rows included as text) ───────────────
+    const t1 = performance.now();
+    const userPrompt = buildVariablesPrompt({ ...context, sampleRows: context.sampleRows.slice(0, 5) });
     const fullPrompt = `${SUGGEST_VARIABLES_SYSTEM_PROMPT}\n\n${userPrompt}`;
+    const t2 = performance.now();
+    console.log(`  [1] buildVariablesPrompt: ${(t2 - t1).toFixed(0)} ms  (prompt length: ${fullPrompt.length} chars)`);
 
-    // Call LLM with dataset
+    // ── Step 2: LLM proxy call (standard, no file upload) ───────────────────
     const llmRequest: LLMProxyRequest = {
       prompt: fullPrompt,
-      dataset_reference: filePath,
       max_tokens: 1500,
       temperature: 0.7,
     };
 
     const response = await apiClient.post<LLMProxyResponse>('/api/llm-proxy', llmRequest);
+    const t3 = performance.now();
+    console.log(`  [2] POST /api/llm-proxy (total round-trip): ${(t3 - t2).toFixed(0)} ms`);
+    console.log(`      backend-reported LLM latency: ${response.latency_ms?.toFixed(0) ?? 'n/a'} ms`);
+    console.log(`      tokens used: ${JSON.stringify(response.usage)}`);
 
-    console.log('Variable suggestions received:', response.response.substring(0, 100));
-
-    // Parse JSON response
+    // ── Step 3: Parse JSON from LLM response ────────────────────────────────
     const suggestions = extractJSON<SuggestedVariable>(response.response);
+    const t4 = performance.now();
+    console.log(`  [3] JSON parse: ${(t4 - t3).toFixed(0)} ms  (${suggestions.length} suggestions)`);
 
-    console.log(`Parsed ${suggestions.length} variable suggestions`);
+    console.log(`  ── TOTAL: ${(t4 - t0).toFixed(0)} ms ──`);
+    console.groupEnd();
 
     return suggestions;
   } catch (error) {
-    console.error('Failed to generate variable suggestions:', error);
+    console.error('[suggestVariables] Failed:', error);
+    console.groupEnd();
     throw error;
   }
 }

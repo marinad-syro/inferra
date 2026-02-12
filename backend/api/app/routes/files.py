@@ -18,6 +18,7 @@ from app.models.schemas import (
     ErrorResponse
 )
 from app.services.database import database_service
+from app.services.dataset_versions import dataset_version_service
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,35 @@ async def upload_file(session_id: str, file: UploadFile = File(...)):
                 "column_names": parsed_data.columns
             }
         )
+
+        # Create Version 0 (initial upload)
+        # Save dataset to local file
+        import tempfile
+        import shutil
+        temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv')
+        temp_path = temp_file.name
+
+        # Write CSV data
+        writer = csv.DictWriter(temp_file, fieldnames=parsed_data.columns)
+        writer.writeheader()
+        writer.writerows(parsed_data.rows)
+        temp_file.close()
+
+        version_0 = await dataset_version_service.create_version(
+            session_id=session_id,
+            dataset_path=temp_path,
+            row_count=parsed_data.rowCount,
+            column_names=parsed_data.columns,
+            source='upload',
+            description=f"Initial upload: {file.filename}",
+            operation_metadata={
+                "filename": file.filename,
+                "file_size": len(content_bytes),
+                "file_type": file.content_type or "text/plain"
+            }
+        )
+
+        logger.info(f"Created Version 0 for session {session_id}: {version_0['id']}")
 
         return FileUploadResponse(
             file=file_metadata,

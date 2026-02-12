@@ -62,7 +62,7 @@ if [ ! -d "venv" ]; then
 fi
 source venv/bin/activate
 pip install -q -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8001 > ../logs/python-service.log 2>&1 &
+uvicorn app.analyze:app --host 0.0.0.0 --port 8001 > ../logs/python-service.log 2>&1 &
 PYTHON_PID=$!
 deactivate
 cd ..

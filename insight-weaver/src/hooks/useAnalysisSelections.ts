@@ -93,6 +93,7 @@ export const useAnalysisSelections = (sessionId: string | undefined) => {
     hasOutliers?: boolean;
     derivedVariables?: { name: string; formula?: string }[];
     trialsDetected?: number;
+    columnDescriptions?: Record<string, string>;
   }) => {
     setGenerating(true);
     setError(null);

@@ -54,9 +54,8 @@ class CodeGenerator:
             "import seaborn as sns",
             "import matplotlib.pyplot as plt",
             "",
-            f"# Load dataset for session: {session_id}",
-            "# df = load_dataset_version(session_id, version_id)",
-            "# For now, assume df is already loaded",
+            f"# Dataset is pre-loaded as 'df' by the execution environment",
+            f"# Session: {session_id}",
             "",
         ]
 
@@ -134,17 +133,80 @@ class CodeGenerator:
 
         for var in derived_variables:
             name = var['name']
-            formula = var.get('transform_formula', '')
-            formula_type = var.get('formula_type', 'expression')
+            # Try both 'formula' (from DB) and 'transform_formula' (legacy)
+            formula = var.get('formula') or var.get('transform_formula', '')
 
-            if formula_type == 'expression':
+            if not formula:
+                # Skip variables with no formula
+                continue
+
+            formula_type = var.get('formula_type', 'eval')
+
+            # Convert backticks to quotes for Python (backticks are for R, not Python)
+            formula = self._convert_backticks_to_quotes_python(formula)
+
+            # Convert df["column"] to df['column'] for consistency
+            formula = self._normalize_python_column_refs(formula)
+
+            # Check if formula uses transformation functions (map_binary, etc.)
+            # These need df as first argument
+            formula = self._fix_transformation_function_calls(formula)
+
+            # Handle different formula types
+            # 'eval' and 'expression' are treated the same - direct pandas expressions
+            if formula_type in ('eval', 'expression', 'python'):
                 # Direct pandas expression
                 code_lines.append(f"df['{name}'] = {formula}")
             elif formula_type == 'function':
                 # Function-based transformation
                 code_lines.append(f"df['{name}'] = df.apply(lambda row: {formula}, axis=1)")
+            else:
+                # Default to direct expression for unknown types
+                code_lines.append(f"df['{name}'] = {formula}")
 
         return "\n".join(code_lines)
+
+    def _fix_transformation_function_calls(self, formula: str) -> str:
+        """Fix transformation function calls to include df as first argument."""
+        import re
+        if not formula:
+            return formula
+
+        # List of transformation functions that need df as first argument
+        transform_funcs = [
+            'map_binary', 'map_categorical', 'normalize', 'z_score',
+            'composite_score', 'conditional_value', 'conditional_numeric',
+            'percentile_rank', 'bin_numeric', 'log_transform', 'winsorize'
+        ]
+
+        # Pattern: function_name(args) → function_name(df, args)
+        for func in transform_funcs:
+            # Match function_name( but not already function_name(df,
+            pattern = rf'\b{func}\s*\((?!df\s*,)'
+            replacement = f'{func}(df, '
+            formula = re.sub(pattern, replacement, formula)
+
+        return formula
+
+    def _convert_backticks_to_quotes_python(self, formula: str) -> str:
+        """Convert backticks (R-style column names) to single quotes for Python."""
+        import re
+        if not formula:
+            return formula
+        # Replace `column name` with 'column name' (just remove backticks)
+        # For transformation functions like map_binary('column', {...}),
+        # the column name should be a string, not df['column']
+        formula = re.sub(r'`([^`]+)`', r"'\1'", formula)
+        return formula
+
+    def _normalize_python_column_refs(self, formula: str) -> str:
+        """Normalize Python column references to use single quotes."""
+        import re
+        if not formula:
+            return formula
+        # Convert df["column"] to df['column'] for consistency
+        formula = re.sub(r'df\["([^"]+)"\]', r"df['\1']", formula)
+        return formula
 
     def _generate_analysis_code_python(self, analyses: List[Dict]) -> str:
         """Generate Python code for statistical analyses."""
@@ -311,9 +373,8 @@ class CodeGenerator:
             "library(tidyr)",
             "library(ggplot2)",
             "",
-            f"# Load dataset for session: {session_id}",
-            "# df <- load_dataset_version(session_id, version_id)",
-            "# For now, assume df is already loaded",
+            f"# Dataset is pre-loaded as 'df' by the execution environment",
+            f"# Session: {session_id}",
             "",
         ]
 
@@ -357,17 +418,21 @@ class CodeGenerator:
                 if mappings:
                     # Convert Python dict to R named vector syntax
                     recode_pairs = ", ".join([f"'{k}' = '{v}'" for k, v in mappings.items()])
-                    code_lines.append(f"df <- df %>% mutate({col} = recode({col}, {recode_pairs}))")
+                    # Quote column name if it contains spaces
+                    col_ref = self._quote_r_column(col)
+                    code_lines.append(f"df <- df %>% mutate({col_ref} = recode({col_ref}, {recode_pairs}))")
 
         # Missing data handling
         if wrangling_config.get('missing_data_strategy'):
             for col, strategy in wrangling_config['missing_data_strategy'].items():
+                # Quote column name if it contains spaces
+                col_ref = self._quote_r_column(col)
                 if strategy == 'drop':
-                    code_lines.append(f"df <- df %>% drop_na({col})")
+                    code_lines.append(f"df <- df %>% drop_na({col_ref})")
                 elif strategy == 'impute_mean':
-                    code_lines.append(f"df <- df %>% mutate({col} = ifelse(is.na({col}), mean({col}, na.rm=TRUE), {col}))")
+                    code_lines.append(f"df <- df %>% mutate({col_ref} = ifelse(is.na({col_ref}), mean({col_ref}, na.rm=TRUE), {col_ref}))")
                 elif strategy == 'impute_median':
-                    code_lines.append(f"df <- df %>% mutate({col} = ifelse(is.na({col}), median({col}, na.rm=TRUE), {col}))")
+                    code_lines.append(f"df <- df %>% mutate({col_ref} = ifelse(is.na({col_ref}), median({col_ref}, na.rm=TRUE), {col_ref}))")
 
         # Duplicate handling
         if wrangling_config.get('duplicate_handling'):
@@ -375,15 +440,23 @@ class CodeGenerator:
             if handling in ['drop_all', 'keep_first']:
                 if wrangling_config.get('duplicate_id_column'):
                     col = wrangling_config['duplicate_id_column']
+                    col_ref = self._quote_r_column(col)
                     if handling == 'keep_first':
-                        code_lines.append(f"df <- df %>% distinct({col}, .keep_all = TRUE)")
+                        code_lines.append(f"df <- df %>% distinct({col_ref}, .keep_all = TRUE)")
                     else:
                         # Drop all duplicates (keep none)
-                        code_lines.append(f"df <- df %>% group_by({col}) %>% filter(n() == 1) %>% ungroup()")
+                        code_lines.append(f"df <- df %>% group_by({col_ref}) %>% filter(n() == 1) %>% ungroup()")
                 else:
                     code_lines.append("df <- df %>% distinct()")
 
         return "\n".join(code_lines)
+
+    def _quote_r_column(self, col_name: str) -> str:
+        """Quote R column name with backticks if it contains spaces or special chars."""
+        # If column name has spaces or starts with a number, use backticks
+        if ' ' in col_name or col_name[0].isdigit() or not col_name.replace('_', '').isalnum():
+            return f"`{col_name}`"
+        return col_name
 
     def _generate_transform_code_r(self, derived_variables: List[Dict]) -> str:
         """Generate R code for derived variable transformations."""
@@ -391,13 +464,43 @@ class CodeGenerator:
 
         for var in derived_variables:
             name = var['name']
-            formula = var.get('transform_formula', '')
+            # Try both 'formula' (from DB) and 'transform_formula' (legacy)
+            formula = var.get('formula') or var.get('transform_formula', '')
+
+            if not formula:
+                continue
 
             # Convert Python-style formula to R syntax
             r_formula = self._convert_formula_to_r(formula)
+
+            # Fix transformation function calls to include df as first argument
+            r_formula = self._fix_r_transformation_calls(r_formula)
+
             code_lines.append(f"df <- df %>% mutate({name} = {r_formula})")
 
         return "\n".join(code_lines)
+
+    def _fix_r_transformation_calls(self, formula: str) -> str:
+        """Fix R transformation function calls to include df as first argument."""
+        import re
+        if not formula:
+            return formula
+
+        # List of transformation functions that need df as first argument
+        transform_funcs = [
+            'map_binary', 'map_categorical', 'normalize', 'z_score',
+            'composite_score', 'conditional_value', 'conditional_numeric',
+            'percentile_rank', 'bin_numeric', 'log_transform', 'winsorize'
+        ]
+
+        # Pattern: function_name(args) → function_name(df, args)
+        for func in transform_funcs:
+            # Match function_name( but not already function_name(df,
+            pattern = rf'\b{func}\s*\((?!df\s*,)'
+            replacement = f'{func}(df, '
+            formula = re.sub(pattern, replacement, formula)
+
+        return formula
 
     def _convert_formula_to_r(self, formula: str) -> str:
         """Convert Python-style formula to R syntax."""
@@ -414,14 +517,36 @@ class CodeGenerator:
         # Convert pandas functions
         r_formula = r_formula.replace('pd.cut', 'cut')
 
-        # Convert df["column"] to df$column
-        # Match df["column_name"] or df['column_name']
-        r_formula = re.sub(r'df\["([^"]+)"\]', r'df$\1', r_formula)
-        r_formula = re.sub(r"df\['([^']+)'\]", r'df$\1', r_formula)
+        # Convert Python dict syntax to R named vector: {'key': value, ...} → c('key' = value, ...)
+        # This handles map_binary and similar functions
+        def convert_dict_to_named_vector(match):
+            dict_content = match.group(1)
+            # Replace colons with equals for R named vector syntax
+            # 'key': value → 'key' = value
+            converted = re.sub(r"'([^']+)':\s*", r"'\1' = ", dict_content)
+            converted = re.sub(r'"([^"]+)":\s*', r'"\1" = ', converted)
+            return f"c({converted})"
 
-        # Convert Python list syntax to R vector syntax
+        r_formula = re.sub(r'\{([^}]+)\}', convert_dict_to_named_vector, r_formula)
+
+        # Convert df["column"] to df$column or `column` if it has spaces
+        # Match df["column_name"] or df['column_name']
+        def convert_df_column(match):
+            col_name = match.group(1)
+            if ' ' in col_name or col_name[0].isdigit():
+                return f'`{col_name}`'
+            return col_name
+
+        r_formula = re.sub(r'df\["([^"]+)"\]', convert_df_column, r_formula)
+        r_formula = re.sub(r"df\['([^']+)'\]", convert_df_column, r_formula)
+
+        # Convert backticks to backticks (column references in formulas)
+        # Already handled above, just ensure they're preserved
+
+        # Convert Python list syntax to R vector syntax (for non-dict lists)
         # [1, 2, 3] → c(1, 2, 3)
         # ["a", "b", "c"] → c("a", "b", "c")
+        # Note: This is now after dict conversion, so dicts are already handled
         r_formula = re.sub(r'\[([^\]]+)\]', r'c(\1)', r_formula)
 
         # Convert pandas cut() parameters: bins= → breaks=

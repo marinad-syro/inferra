@@ -134,11 +134,16 @@ async function request<T>(
 
       // Parse response
       let data: any;
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
+      // 204 No Content and similar empty responses have no body to parse
+      if (response.status === 204 || response.headers.get('content-length') === '0') {
+        data = null;
       } else {
-        data = await response.text();
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          data = await response.json();
+        } else {
+          data = await response.text();
+        }
       }
 
       // Handle error responses
@@ -516,12 +521,16 @@ export const apiClient = {
   async executeCode(
     sessionId: string,
     code: string,
-    language: 'python' | 'r' = 'python'
+    language: 'python' | 'r' = 'python',
+    datasetReference?: string
   ): Promise<{
     success: boolean;
     row_count?: number;
     column_names?: string[];
     dataset?: any[];
+    console_output?: string;
+    plots?: string[];
+    analysis_results?: Record<string, any>;
     error?: string;
     traceback?: string;
   }> {
@@ -529,6 +538,7 @@ export const apiClient = {
       code,
       language,
       session_id: sessionId,
+      dataset_reference: datasetReference,
     });
   },
 

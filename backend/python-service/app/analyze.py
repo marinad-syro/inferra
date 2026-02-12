@@ -137,6 +137,26 @@ class CleaningResponse(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
 
 
+class CodeExecutionRequest(BaseModel):
+    """Request to execute custom Python code."""
+    code: str = Field(..., description="Python code to execute")
+    session_id: str = Field(..., description="Session ID")
+    dataset_reference: Optional[str] = Field(None, description="Dataset reference (path)")
+
+
+class CodeExecutionResponse(BaseModel):
+    """Response from code execution."""
+    success: bool = Field(..., description="Whether execution succeeded")
+    row_count: Optional[int] = Field(None, description="Number of rows in result dataset")
+    column_names: Optional[List[str]] = Field(None, description="Column names in result dataset")
+    dataset: Optional[List[Dict[str, Any]]] = Field(None, description="Result dataset")
+    console_output: Optional[str] = Field(None, description="Captured print/console output")
+    plots: Optional[List[str]] = Field(None, description="Base64-encoded plot images")
+    analysis_results: Optional[Dict[str, Any]] = Field(None, description="Structured analysis results")
+    error: Optional[str] = Field(None, description="Error message if failed")
+    traceback: Optional[str] = Field(None, description="Full traceback if failed")
+
+
 # ============================================================================
 # FastAPI Application
 # ============================================================================
@@ -189,6 +209,268 @@ async def environment_info():
             "matplotlib": matplotlib.__version__
         }
     }
+
+
+class SafeCodeValidator(ast.NodeVisitor):
+    """Validate code doesn't use dangerous operations."""
+    FORBIDDEN_NAMES = {'eval', 'exec', 'compile', '__import__', 'open', 'input',
+                       'file', 'execfile', 'reload', 'vars', 'locals', 'globals',
+                       'dir', 'help', 'exit', 'quit'}
+    FORBIDDEN_MODULES = {'os', 'sys', 'subprocess', 'socket', 'urllib', 'requests',
+                        'shutil', 'pickle', 'shelve', 'multiprocessing', 'threading'}
+
+    def visit_Call(self, node):
+        """Check function calls for forbidden operations."""
+        if isinstance(node.func, ast.Name):
+            if node.func.id in self.FORBIDDEN_NAMES:
+                raise ValueError(f"Forbidden function: {node.func.id}")
+        self.generic_visit(node)
+
+    def visit_Import(self, node):
+        """Check imports for forbidden modules."""
+        for alias in node.names:
+            if alias.name.split('.')[0] in self.FORBIDDEN_MODULES:
+                raise ValueError(f"Forbidden import: {alias.name}")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        """Check from imports for forbidden modules."""
+        if node.module and node.module.split('.')[0] in self.FORBIDDEN_MODULES:
+            raise ValueError(f"Forbidden import from: {node.module}")
+        self.generic_visit(node)
+
+
+@app.post("/execute-code", response_model=CodeExecutionResponse)
+async def execute_code(request: CodeExecutionRequest) -> CodeExecutionResponse:
+    """
+    Execute user Python code in sandboxed environment.
+
+    Args:
+        request: Code execution request with code, session_id, and optional dataset reference
+
+    Returns:
+        Execution results with dataset info or error details
+    """
+    import traceback as tb
+    from scipy import stats
+
+    try:
+        # 1. Validate code syntax
+        logger.info(f"Validating code for session {request.session_id}")
+        try:
+            tree = ast.parse(request.code)
+        except SyntaxError as e:
+            logger.error(f"Syntax error in code: {e}")
+            return CodeExecutionResponse(
+                success=False,
+                error=f"Invalid Python syntax: {str(e)}"
+            )
+
+        # 2. Check for dangerous operations
+        try:
+            validator = SafeCodeValidator()
+            validator.visit(tree)
+        except ValueError as e:
+            logger.error(f"Code validation failed: {e}")
+            return CodeExecutionResponse(
+                success=False,
+                error=str(e)
+            )
+
+        # 3. Load dataset if provided
+        df = None
+        if request.dataset_reference:
+            try:
+                df = load_dataset(request.dataset_reference)
+                logger.info(f"Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns")
+            except Exception as e:
+                logger.error(f"Failed to load dataset: {e}")
+                return CodeExecutionResponse(
+                    success=False,
+                    error=f"Failed to load dataset: {str(e)}"
+                )
+
+        # 4. Set up safe execution environment
+        safe_globals = {
+            'pd': pd,
+            'pandas': pd,
+            'np': np,
+            'numpy': np,
+            'stats': stats,
+            'sns': sns,
+            'seaborn': sns,
+            'plt': plt,
+            'matplotlib': matplotlib,
+            'df': df,
+            # Add transformation library functions
+            'map_binary': TransformationLibrary.map_binary,
+            'map_categorical': TransformationLibrary.map_categorical,
+            'normalize': TransformationLibrary.normalize,
+            'z_score': TransformationLibrary.z_score,
+            'composite_score': TransformationLibrary.composite_score,
+            'conditional_value': TransformationLibrary.conditional_value,
+            'conditional_numeric': TransformationLibrary.conditional_numeric,
+            'percentile_rank': TransformationLibrary.percentile_rank,
+            'bin_numeric': TransformationLibrary.bin_numeric,
+            'log_transform': TransformationLibrary.log_transform,
+            'winsorize': TransformationLibrary.winsorize,
+            '__builtins__': {
+                'abs': abs, 'all': all, 'any': any, 'bool': bool,
+                'dict': dict, 'enumerate': enumerate, 'filter': filter,
+                'float': float, 'int': int, 'len': len, 'list': list,
+                'map': map, 'max': max, 'min': min, 'print': print,
+                'range': range, 'round': round, 'set': set, 'sorted': sorted,
+                'str': str, 'sum': sum, 'tuple': tuple, 'type': type, 'zip': zip,
+                'True': True, 'False': False, 'None': None,
+                '__import__': __import__,  # Allow imports but they'll be restricted
+            }
+        }
+
+        # 5. Preprocess code to handle common imports
+        # Replace imports of safe libraries with pass statements
+        # This allows generated code to include imports without breaking
+        code_lines = request.code.split('\n')
+        processed_lines = []
+        for line in code_lines:
+            stripped = line.strip()
+            # Skip imports of libraries we already provide
+            if (stripped.startswith('import pandas') or
+                stripped.startswith('import numpy') or
+                stripped.startswith('import seaborn') or
+                stripped.startswith('import matplotlib') or
+                stripped.startswith('from pandas') or
+                stripped.startswith('from numpy') or
+                stripped.startswith('from scipy') or
+                stripped.startswith('from seaborn') or
+                stripped.startswith('from matplotlib')):
+                processed_lines.append('# ' + line)  # Comment out the import
+            else:
+                processed_lines.append(line)
+
+        processed_code = '\n'.join(processed_lines)
+
+        # 6. Execute code and capture console output
+        logger.info("Executing user code")
+        import io
+        import sys
+
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = captured_output = io.StringIO()
+
+        try:
+            exec(processed_code, safe_globals)
+            console_output = captured_output.getvalue()
+        except Exception as e:
+            error_trace = tb.format_exc()
+            logger.error(f"Code execution failed: {e}")
+            logger.error(f"Traceback:\n{error_trace}")
+            return CodeExecutionResponse(
+                success=False,
+                error=str(e),
+                traceback=error_trace,
+                console_output=captured_output.getvalue()
+            )
+        finally:
+            # Restore stdout
+            sys.stdout = old_stdout
+
+        # 7. Extract result dataframe
+        result_df = safe_globals.get('df')
+        if result_df is None:
+            logger.error("Code must define or maintain 'df' variable")
+            return CodeExecutionResponse(
+                success=False,
+                error="Code must define or maintain 'df' variable with the dataset"
+            )
+
+        if not isinstance(result_df, pd.DataFrame):
+            logger.error(f"'df' must be a DataFrame, got {type(result_df)}")
+            return CodeExecutionResponse(
+                success=False,
+                error=f"'df' must be a pandas DataFrame, got {type(result_df).__name__}"
+            )
+
+        # 8. Convert result to JSON-serializable format
+        row_count = len(result_df)
+        column_names = result_df.columns.tolist()
+
+        # Convert dataset to dict with proper type handling
+        dataset_records = result_df.to_dict(orient='records')
+        dataset_records = [
+            {k: (float(v) if isinstance(v, (int, float, np.integer, np.floating)) and pd.notna(v)
+                 else (None if pd.isna(v) else v))
+             for k, v in row.items()}
+            for row in dataset_records
+        ]
+
+        # 9. Capture matplotlib plots
+        plots = []
+        try:
+            import io
+            import base64
+
+            # Get all figures (plt already imported at top)
+            figs = [plt.figure(num) for num in plt.get_fignums()]
+            logger.info(f"Found {len(figs)} matplotlib figures")
+
+            for i, fig in enumerate(figs):
+                # Save figure to bytes
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                buf.seek(0)
+
+                # Encode as base64
+                img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                plots.append(img_base64)
+                buf.close()
+
+            # Close all figures to free memory
+            plt.close('all')
+
+        except Exception as e:
+            logger.warning(f"Failed to capture plots: {e}")
+
+        # 10. Extract analysis results from safe_globals
+        analysis_results = {}
+        for key, value in safe_globals.items():
+            # Capture common result objects
+            if key.startswith('result') or key.endswith('_result'):
+                if hasattr(value, '__dict__'):
+                    # Convert result objects to dict
+                    try:
+                        analysis_results[key] = str(value)
+                    except:
+                        pass
+                elif isinstance(value, (int, float, str, bool, list, dict)):
+                    analysis_results[key] = value
+
+        logger.info(f"Code executed successfully: {row_count} rows, {len(column_names)} columns")
+        if console_output:
+            logger.info(f"Console output: {console_output[:200]}...")
+        if plots:
+            logger.info(f"Captured {len(plots)} plots")
+        if analysis_results:
+            logger.info(f"Captured analysis results: {list(analysis_results.keys())}")
+
+        return CodeExecutionResponse(
+            success=True,
+            row_count=row_count,
+            column_names=column_names,
+            dataset=dataset_records,
+            console_output=console_output if console_output else None,
+            plots=plots if plots else None,
+            analysis_results=analysis_results if analysis_results else None
+        )
+
+    except Exception as e:
+        error_trace = tb.format_exc()
+        logger.error(f"Unexpected error during code execution: {e}", exc_info=True)
+        return CodeExecutionResponse(
+            success=False,
+            error=f"Unexpected error: {str(e)}",
+            traceback=error_trace
+        )
 
 
 def execute_transformation(df: pd.DataFrame, formula_str: str) -> pd.Series:
@@ -296,11 +578,46 @@ async def compute_variables(request: ComputeVariablesRequest) -> ComputeVariable
                     logger.info(f"✓ Computed variable '{variable.name}' using transform: {variable.formula}")
 
                 elif formula_type == "python":
-                    # Future: sandboxed Python execution
-                    raise NotImplementedError(
-                        "Python formula type is not yet supported. "
-                        "Please use 'eval' for numeric operations or 'transform' for advanced transformations."
-                    )
+                    # Multi-line Python code execution
+                    # Set up safe execution environment
+                    # Transform functions are pre-bound with `dataset` so the LLM can call
+                    # them as map_categorical('col', {...}) without passing df explicitly.
+                    import functools
+                    safe_globals = {
+                        'pd': pd,
+                        'np': np,
+                        'df': dataset,
+                        # Transformation library functions (df pre-bound)
+                        'map_binary': functools.partial(TransformationLibrary.map_binary, dataset),
+                        'map_categorical': functools.partial(TransformationLibrary.map_categorical, dataset),
+                        'normalize': functools.partial(TransformationLibrary.normalize, dataset),
+                        'z_score': functools.partial(TransformationLibrary.z_score, dataset),
+                        'composite_score': functools.partial(TransformationLibrary.composite_score, dataset),
+                        'conditional_value': functools.partial(TransformationLibrary.conditional_value, dataset),
+                        'conditional_numeric': functools.partial(TransformationLibrary.conditional_numeric, dataset),
+                        'percentile_rank': functools.partial(TransformationLibrary.percentile_rank, dataset),
+                        'bin_numeric': functools.partial(TransformationLibrary.bin_numeric, dataset),
+                        'log_transform': functools.partial(TransformationLibrary.log_transform, dataset),
+                        'winsorize': functools.partial(TransformationLibrary.winsorize, dataset),
+                    }
+                    safe_locals = {}
+
+                    # Execute the multi-line code
+                    exec(variable.formula, safe_globals, safe_locals)
+
+                    # The last expression or assignment should be 'result'
+                    # Or if there's only one assignment, use that
+                    if 'result' in safe_locals:
+                        dataset[variable.name] = safe_locals['result']
+                    else:
+                        # Find the last assigned variable
+                        if safe_locals:
+                            last_var = list(safe_locals.values())[-1]
+                            dataset[variable.name] = last_var
+                        else:
+                            raise ValueError("Python formula must assign to 'result' or return a value")
+
+                    logger.info(f"✓ Computed variable '{variable.name}' using python formula")
 
                 else:
                     raise ValueError(
@@ -824,17 +1141,24 @@ def execute_scipy_analysis(
     results = {}
     plot_paths = []
 
+    # Strip common prefixes (LLM may return "stats.ttest_ind" or "scipy.stats.ttest_ind")
+    for prefix in ("scipy.stats.", "stats.", "scipy."):
+        if function.startswith(prefix):
+            function = function[len(prefix):]
+            break
+
     if function == "ttest_ind":
         # Independent t-test
         group_col = params.get("group_col")
         value_col = params.get("value_col")
 
-        groups = dataset[group_col].unique()
+        working = dataset.dropna(subset=[group_col, value_col])
+        groups = working[group_col].unique()
         if len(groups) != 2:
-            raise ValueError(f"Expected 2 groups, found {len(groups)}")
+            raise ValueError(f"Expected 2 groups, found {len(groups)}: {list(groups)}")
 
-        group1_data = dataset[dataset[group_col] == groups[0]][value_col]
-        group2_data = dataset[dataset[group_col] == groups[1]][value_col]
+        group1_data = working[working[group_col] == groups[0]][value_col]
+        group2_data = working[working[group_col] == groups[1]][value_col]
 
         t_stat, p_value = stats.ttest_ind(group1_data, group2_data)
 
@@ -945,12 +1269,13 @@ def execute_scipy_analysis(
         group_col = params.get("group_col")
         value_col = params.get("value_col")
 
-        groups = dataset[group_col].unique()
+        working = dataset.dropna(subset=[group_col, value_col])
+        groups = working[group_col].unique()
         if len(groups) != 2:
-            raise ValueError(f"Expected 2 groups, found {len(groups)}")
+            raise ValueError(f"Expected 2 groups, found {len(groups)}: {list(groups)}")
 
-        group1_data = dataset[dataset[group_col] == groups[0]][value_col].dropna()
-        group2_data = dataset[dataset[group_col] == groups[1]][value_col].dropna()
+        group1_data = working[working[group_col] == groups[0]][value_col]
+        group2_data = working[working[group_col] == groups[1]][value_col]
 
         u_stat, p_value = stats.mannwhitneyu(group1_data, group2_data, alternative='two-sided')
 
@@ -1014,6 +1339,12 @@ def execute_statsmodels_analysis(
 
     results = {}
     plot_paths = []
+
+    # Strip common prefixes
+    for prefix in ("statsmodels.formula.api.", "statsmodels.", "smf."):
+        if function.startswith(prefix):
+            function = function[len(prefix):]
+            break
 
     if function == "ols":
         # Ordinary least squares regression

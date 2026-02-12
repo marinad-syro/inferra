@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -44,6 +45,7 @@ async def upload_dataset(file: UploadFile = File(...)):
         HTTPException: If file is too large or upload fails
     """
     try:
+        _t0 = time.perf_counter()
         # Validate file extension
         if file.filename:
             ext = os.path.splitext(file.filename)[1].lower()
@@ -60,6 +62,8 @@ async def upload_dataset(file: UploadFile = File(...)):
         # Read file content and check size
         content = await file.read()
         file_size = len(content)
+        _t1 = time.perf_counter()
+        logger.info(f"[TIMING] upload-dataset: read {file_size} bytes from request: {(_t1-_t0)*1000:.0f} ms")
 
         if file_size > MAX_FILE_SIZE:
             raise HTTPException(
@@ -78,12 +82,14 @@ async def upload_dataset(file: UploadFile = File(...)):
         file_path = DATASET_DIR / filename
 
         # Save file
+        _t2 = time.perf_counter()
         with open(file_path, "wb") as f:
             f.write(content)
-
+        _t3 = time.perf_counter()
         logger.info(
             f"Dataset uploaded: {filename} ({file_size} bytes) from {file.filename}"
         )
+        logger.info(f"[TIMING] upload-dataset: disk write: {(_t3-_t2)*1000:.0f} ms  |  total handler: {(_t3-_t0)*1000:.0f} ms")
 
         return {
             "file_path": str(file_path),

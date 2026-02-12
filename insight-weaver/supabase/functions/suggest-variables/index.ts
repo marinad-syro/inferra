@@ -8,6 +8,7 @@ const corsHeaders = {
 interface SuggestedVariable {
   name: string;
   formula: string;
+  formula_type?: string;
   description: string;
 }
 
@@ -19,29 +20,52 @@ serve(async (req) => {
   try {
     const { sampleRows, columns, researchQuestion } = await req.json();
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const XAI_API_KEY = Deno.env.get('XAI_API_KEY');
+    if (!XAI_API_KEY) {
+      throw new Error('XAI_API_KEY is not configured');
     }
 
-    const systemPrompt = `You are a data analysis assistant specializing in behavioral research data. 
+    const systemPrompt = `You are a data analysis assistant specializing in behavioral research data.
 Your task is to analyze the provided data columns and sample rows, then suggest derived variables that would be useful for analysis.
+
+FORMULA TYPES:
+1. **Multi-line Python formulas** - You can write multiple lines! This allows you to map categorical→numeric, then compute composites in ONE variable.
+2. The last line or 'result' variable will be assigned to the new column
+
+AVAILABLE TRANSFORMATION FUNCTIONS:
+- map_binary(df, column, mapping_dict) - Convert categorical to 0/1
+  Example: map_binary(df, 'Status', {'Yes': 1, 'No': 0})
+- map_categorical(df, column, mapping_dict) - Convert categorical to numeric
+  Example: map_categorical(df, 'Emotion', {'Sad': 1, 'Neutral': 2, 'Happy': 3})
+- composite_score(df, columns_list) - Weighted average of numeric columns (auto-normalizes)
+  Example: composite_score(df, ['score1', 'score2', 'score3'])
+- normalize(df, column) - Scale numeric column 0-1
+- z_score(df, column) - Standardize numeric column
+- For basic math: df['col1'] + df['col2'], np.log(df['col']), etc.
+
+MULTI-LINE FORMULA EXAMPLE for composite of categorical columns:
+  sadness = map_binary(df, 'Sadness', {'Usually': 1, 'Sometimes': 0.5, 'Seldom': 0})
+  exhausted = map_binary(df, 'Exhausted', {'Usually': 1, 'Sometimes': 0.5, 'Seldom': 0})
+  sleep_issues = map_binary(df, 'Sleep dissorder', {'Yes': 1, 'No': 0})
+  result = composite_score(df, [sadness, exhausted, sleep_issues])
+
+IMPORTANT RULES:
+1. Check sample data to identify column types (strings → categorical, numbers → numeric)
+2. For composite scores of categorical data, use multi-line formulas to map first
+3. Always pass 'df' as first argument to transformation functions
+4. The last expression or 'result =' becomes the column value
 
 For each variable, provide:
 - name: A clear, descriptive name
-- formula: A pseudo-code formula showing how to compute it
+- formula: Python code (can be multi-line)
+- formula_type: MUST be "python" for multi-line formulas, "transform" for single-line transformation functions, or "eval" for simple math
 - description: A brief explanation of what it measures
 
-Focus on common behavioral metrics like:
-- Reaction times (RT) between events
-- Accuracy/error rates
-- Choice patterns
-- Performance metrics
-- Aggregated measures
+**CRITICAL**: If your formula contains multiple lines or uses variables (like sadness = ...), you MUST set formula_type: "python"
 
-IMPORTANT: Order your suggestions by relevance. If a research question is provided, ensure the first 1-2 suggestions are directly relevant to answering that research question. The remaining suggestions can be general-purpose behavioral metrics.
+Order suggestions by relevance. If a research question is provided, ensure the first 1-2 suggestions directly address it.
 
-Return your suggestions as a JSON array of objects with name, formula, and description fields.
+Return your suggestions as a JSON array of objects with name, formula, formula_type, and description fields.
 Only return the JSON array, no other text.`;
 
     const userPrompt = researchQuestion 
@@ -66,16 +90,16 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}
 
 Suggest derived variables that would help analyze this behavioral data. Return only a JSON array.`;
 
-    console.log('Requesting variable suggestions from AI...');
-    
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    console.log('Requesting variable suggestions from XAI Grok...');
+
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${XAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
+        model: 'grok-4-fast',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -118,6 +142,15 @@ Suggest derived variables that would help analyze this behavioral data. Return o
       console.error('Failed to parse AI response:', parseError);
       suggestions = [];
     }
+
+    // Post-process suggestions to ensure correct formula_type
+    suggestions = suggestions.map(s => {
+      // If formula_type not set or if formula contains newlines/multiple lines, set to "python"
+      if (!s.formula_type || s.formula.includes('\n') || /^[a-zA-Z_]\w*\s*=/.test(s.formula)) {
+        return { ...s, formula_type: 'python' };
+      }
+      return s;
+    });
 
     return new Response(JSON.stringify({ suggestions }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

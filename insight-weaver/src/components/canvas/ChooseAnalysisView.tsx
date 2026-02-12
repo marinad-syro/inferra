@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from "react";
-import { BarChart3, Brain, LineChart, Layers, Sparkles, Loader2, Info, Plus, X } from "lucide-react";
+import { BarChart3, Brain, LineChart, Layers, Sparkles, Loader2, Info, Plus, X, CheckCircle2 } from "lucide-react";
 import { useWorkflow } from "@/contexts/WorkflowContext";
 import { toast } from "sonner";
 import { ANALYSIS_CATALOG } from "@/constants/analysisParameterCatalog";
@@ -35,10 +35,12 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
     selectionsGenerating,
     generateAnalysisSuggestions,
     toggleSelection,
+    fetchSelections,
     parsedData,
     session,
     variables,
     trialStructure,
+    columnDescriptions,
   } = useWorkflow();
 
   const sessionId = session?.id;
@@ -60,10 +62,10 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
     ...derivedVariableNames.filter(name => !dataColumns.includes(name))
   ];
 
-  // Auto-generate suggestions when component mounts (if we have data)
+  // Auto-generate suggestions when component mounts — only if no selections exist yet
   useEffect(() => {
     const autoGenerate = async () => {
-      if (parsedData?.rows?.length && !selectionsGenerating) {
+      if (parsedData?.rows?.length && !selectionsGenerating && selections.length === 0) {
         await generateAnalysisSuggestions({
           columns: availableColumns,
           sampleRows: parsedData.rows.slice(0, 30),
@@ -75,6 +77,7 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
             formula: v.formula
           })),
           trialsDetected: trialStructure?.trials_detected || 0,
+          columnDescriptions,
         });
       }
     };
@@ -83,12 +86,9 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isSelected = (analysisId: string) => {
-    const selection = selections.find(s => s.analysis_type === analysisId);
-    return selection?.is_selected || false;
-  };
-
-  const selectedCount = selections.filter(s => s.is_selected).length;
+  const selectedAnalyses = selections.filter(s => s.is_selected);
+  const unselectedSuggestions = selections.filter(s => !s.is_selected);
+  const selectedCount = selectedAnalyses.length;
   const hasSelections = selections.length > 0;
 
   const handleGenerateSuggestions = useCallback(async () => {
@@ -109,6 +109,7 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
           formula: v.formula
         })),
         trialsDetected: trialStructure?.trials_detected || 0,
+        columnDescriptions,
       });
 
       if (result.length > 0) {
@@ -172,19 +173,18 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
     ];
 
     try {
-      const data = await apiClient.createSelections(sessionId, toInsert);
-      // Refresh happens via context; for now just reset form
+      await apiClient.createSelections(sessionId, toInsert);
       toast.success(`Added custom ${catalogEntry.label}`);
       setShowCustomForm(false);
       setCustomMethod('');
       setCustomParamMap({});
-      // Re-fetch to update state (WorkflowContext should handle this, but a simple reload:)
-      window.location.reload();
+      // Refresh state from server without full page reload
+      await fetchSelections();
     } catch (err) {
       console.error("Add custom analysis error:", err);
       toast.error("Failed to add custom analysis");
     }
-  }, [customMethod, customParamMap, selections, sessionId]);
+  }, [customMethod, customParamMap, selections, sessionId, fetchSelections]);
 
   if (selectionsLoading) {
     return (
@@ -212,7 +212,61 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
         </p>
       </div>
 
-      {/* Empty State / Generate Button */}
+      {/* Selected Analyses — always visible when any are selected */}
+      {selectedCount > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-primary" />
+            Selected Analyses ({selectedCount})
+          </h3>
+          <div className="grid gap-3">
+            {selectedAnalyses.map((selection) => {
+              const complexity = (selection.complexity as keyof typeof complexityColors) || 'Intermediate';
+              return (
+                <div
+                  key={selection.id}
+                  className="card-section ring-2 ring-primary bg-primary/5 flex items-start gap-4"
+                >
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary text-primary-foreground">
+                    {getAnalysisIcon(selection.analysis_type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-semibold text-foreground">
+                        {selection.title || selection.analysis_type}
+                      </h3>
+                      <span className={`text-xs px-2 py-0.5 rounded ${complexityColors[complexity] || complexityColors.Intermediate}`}>
+                        {complexity}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {selection.description || "Statistical analysis method"}
+                    </p>
+                    {selection.selected_columns && selection.selected_columns.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {selection.selected_columns.map(col => (
+                          <span key={col} className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
+                            {col}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => toggleSelection(selection.analysis_type)}
+                    className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5"
+                    title="Remove"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* AI Recommendations */}
       {!hasSelections ? (
         <div className="card-section mb-6 text-center py-8">
           <BarChart3 className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
@@ -240,95 +294,62 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
         </div>
       ) : (
         <>
-          {/* Analysis Options */}
-          <div className="grid gap-4 mb-6">
-            {selections.map((selection) => {
-              const selected = isSelected(selection.analysis_type);
-              const complexity = (selection.complexity as keyof typeof complexityColors) || 'Intermediate';
+          {/* Recommendations list — only unselected ones */}
+          {unselectedSuggestions.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-muted-foreground" />
+                Recommendations
+              </h3>
+              <div className="grid gap-4">
+                {unselectedSuggestions.map((selection) => {
+                  const complexity = (selection.complexity as keyof typeof complexityColors) || 'Intermediate';
 
-              return (
-                <div
-                  key={selection.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => toggleSelection(selection.analysis_type)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      toggleSelection(selection.analysis_type);
-                    }
-                  }}
-                  className={`card-section text-left transition-all cursor-pointer ${
-                    selected
-                      ? "ring-2 ring-primary bg-primary/5"
-                      : "hover:border-primary/30"
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
+                  return (
                     <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        selected ? "bg-primary text-primary-foreground" : "bg-accent text-primary"
-                      }`}
+                      key={selection.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleSelection(selection.analysis_type)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleSelection(selection.analysis_type);
+                        }
+                      }}
+                      className="card-section text-left transition-all cursor-pointer hover:border-primary/30"
                     >
-                      {getAnalysisIcon(selection.analysis_type)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-base font-semibold text-foreground">
-                          {selection.title || selection.analysis_type}
-                        </h3>
-                        <span className={`text-xs px-2 py-0.5 rounded ${complexityColors[complexity] || complexityColors.Intermediate}`}>
-                          {complexity}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {selection.description || "Statistical analysis method"}
-                      </p>
-                      {selection.reasoning && (
-                        <div className="mt-2 p-2 bg-accent/50 rounded text-xs text-muted-foreground">
-                          <span className="font-medium">Why this method: </span>
-                          {selection.reasoning}
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent text-primary">
+                          {getAnalysisIcon(selection.analysis_type)}
                         </div>
-                      )}
-                      {/* Show columns derived from execution_spec */}
-                      {selected && selection.selected_columns && selection.selected_columns.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {selection.selected_columns.map(col => (
-                            <span key={col} className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
-                              {col}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-semibold text-foreground">
+                              {selection.title || selection.analysis_type}
+                            </h3>
+                            <span className={`text-xs px-2 py-0.5 rounded ${complexityColors[complexity] || complexityColors.Intermediate}`}>
+                              {complexity}
                             </span>
-                          ))}
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {selection.description || "Statistical analysis method"}
+                          </p>
+                          {selection.reasoning && (
+                            <div className="mt-2 p-2 bg-accent/50 rounded text-xs text-muted-foreground">
+                              <span className="font-medium">Why this method: </span>
+                              {selection.reasoning}
+                            </div>
+                          )}
                         </div>
-                      )}
+                        <div className="w-5 h-5 rounded-full border-2 border-input flex items-center justify-center flex-shrink-0" />
+                      </div>
                     </div>
-                    <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                        selected
-                          ? "border-primary bg-primary"
-                          : "border-input"
-                      }`}
-                    >
-                      {selected && (
-                        <svg
-                          className="w-3 h-3 text-primary-foreground"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={3}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Regenerate Button */}
           <div className="flex justify-center mb-6">
@@ -427,22 +448,6 @@ const ChooseAnalysisView = ({ onContinue }: ChooseAnalysisViewProps) => {
           </div>
         )}
       </div>
-
-      {/* Selection Summary */}
-      {selectedCount > 0 && (
-        <div className="card-section mb-6">
-          <h4 className="text-sm font-medium text-foreground mb-2">Selected Analyses</h4>
-          <div className="flex flex-wrap gap-2">
-            {selections
-              .filter(s => s.is_selected)
-              .map(s => (
-                <span key={s.analysis_type} className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full">
-                  {s.title || s.analysis_type}
-                </span>
-              ))}
-          </div>
-        </div>
-      )}
 
       {/* Info about AI recommendations */}
       {hasSelections && (

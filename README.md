@@ -1,162 +1,107 @@
-# `supabase-py`
+# Inferra
 
-Python client for [Supabase](https://supabase.com)
+An interactive statistical analysis platform for research in health sciences. Upload a dataset, clean it, define derived variables, and run statistical analyses — guided by AI recommendations at each step.
 
-- Documentation: [supabase.com/docs](https://supabase.com/docs/reference/python/introduction)
-- Usage:
-  - [GitHub OAuth in your Python Flask app](https://supabase.com/blog/oauth2-login-python-flask-apps)
-  - [Python data loading with Supabase](https://supabase.com/blog/loading-data-supabase-python)
+## What it does
 
-### PyPI installation
+Inferra walks researchers through a 7-step workflow:
 
-Install the package (for Python >= 3.9):
+1. **Upload Data** — CSV/Excel upload, stored via Supabase
+2. **Data Wrangling** — Label standardization, missing value handling, filtering
+3. **Describe Variables** — Write descriptions for all vaguely named variables to provide the LLM with better context
+4. **Create Variables** — Derive new columns using transforms (log, normalize, map, composite scores, etc.) or custom Python formulas
+5. **Choose Analysis** — AI-recommended statistical tests based on your data and research question; custom analyses also supported
+6. **Data Visualization** — Box plots, scatter plots, histograms, regression plots
+7. **Results** — Statistical output with AI-generated interpretation
+
+The AI generates context-based recommendations for steps 4, 5, and 6, as well as result interpretations for step 7.
+There's also a **Code Canvas** mode which tracks all the UI changes and records them as code. Users can then further modify this code and run it.
+
+## Architecture (for running locally)
+
+```
+insight-weaver/        # React frontend (Vite + TypeScript + shadcn/ui)
+backend/
+  api/                 # FastAPI gateway (port 8000)
+  python-service/      # Statistical analysis engine (port 8001)
+  r-service/           # R analysis engine (port 8002)
+```
+
+| Service | Port | Purpose |
+|---|---|---|
+| Frontend (dev) | 5173 | React app |
+| API gateway | 8000 | Request routing, Supabase, LLM proxy |
+| Python service | 8001 | Stats tests, transforms, visualizations |
+| R service | 8002 | R-based analyses |
+
+## How to run locally
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.11+
+- R 4.3+ (optional, for R service)
+- A Supabase project
+- An XAI API key (for Grok LLM)
+
+### 1. Backend
 
 ```bash
-# with pip
-pip install supabase
+cd backend
 
-# with uv
-uv add supabase
+# Copy and fill in environment variables
+cp .env.example .env
 
-# with conda
-conda install -c conda-forge supabase
+# Install Python dependencies
+pip install -r api/requirements.txt
+pip install -r python-service/requirements.txt
+
+# Start all services
+./start-services.sh
 ```
 
-## Usage
-
-Set your Supabase environment variables in a dotenv file, or using the shell:
+Or run individually:
 
 ```bash
-export SUPABASE_URL="my-url-to-my-awesome-supabase-instance"
-export SUPABASE_KEY="my-supa-dupa-secret-supabase-api-key"
+# API gateway
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Python service (from backend/python-service)
+PYTHONPATH=. uvicorn app.analyze:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-Init client:
+### 2. Frontend
 
-```python
-import os
-from supabase import create_client, Client
-
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(url, key)
+```bash
+cd insight-weaver
+npm install
+npm run dev
 ```
 
-Use the supabase client to interface with your database.
+### Environment variables
 
-### Sign-up
+Create `backend/.env`:
 
-```python
-user = supabase.auth.sign_up({ "email": users_email, "password": users_password })
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+
+XAI_API_KEY=...
+XAI_MODEL=grok-3-fast
+XAI_FAST_MODEL=grok-3-fast
+
+PYTHON_SERVICE_URL=...
+R_SERVICE_URL=...
+FRONTEND_ORIGIN=...
 ```
 
-### Sign-in
+## Tech stack
 
-```python
-user = supabase.auth.sign_in_with_password({ "email": users_email, "password": users_password })
-```
+**Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query, Monaco Editor
 
-### Insert Data
+**Backend:** FastAPI, Pydantic, pandas, NumPy, SciPy, statsmodels, seaborn, matplotlib
 
-```python
-data = supabase.table("countries").insert({"name":"Germany"}).execute()
+**R service:** Plumber, dplyr, tidyr, ggplot2
 
-# Assert we pulled real data.
-assert len(data.data) > 0
-```
-
-### Select Data
-
-```python
-data = supabase.table("countries").select("*").eq("country", "IL").execute()
-
-# Assert we pulled real data.
-assert len(data.data) > 0
-```
-
-### Update Data
-
-```python
-data = supabase.table("countries").update({"country": "Indonesia", "capital_city": "Jakarta"}).eq("id", 1).execute()
-```
-
-### Update data with duplicate keys
-
-```python
-country = {
-  "country": "United Kingdom",
-  "capital_city": "London" # This was missing when it was added
-}
-
-data = supabase.table("countries").upsert(country).execute()
-assert len(data.data) > 0
-```
-
-### Delete Data
-
-```python
-data = supabase.table("countries").delete().eq("id", 1).execute()
-```
-
-### Call Edge Functions
-
-```python
-def test_func():
-  try:
-    resp = supabase.functions.invoke("hello-world", invoke_options={'body':{}})
-    return resp
-  except (FunctionsRelayError, FunctionsHttpError) as exception:
-    err = exception.to_dict()
-    print(err.get("message"))
-```
-
-### Download a file from Storage
-
-```python
-bucket_name: str = "photos"
-
-data = supabase.storage.from_(bucket_name).download("photo1.png")
-```
-
-### Upload a file
-
-```python
-bucket_name: str = "photos"
-new_file = getUserFile()
-
-data = supabase.storage.from_(bucket_name).upload("/user1/profile.png", new_file)
-```
-
-### Remove a file
-
-```python
-bucket_name: str = "photos"
-
-data = supabase.storage.from_(bucket_name).remove(["old_photo.png", "image5.jpg"])
-```
-
-### List all files
-
-```python
-bucket_name: str = "charts"
-
-data = supabase.storage.from_(bucket_name).list()
-```
-
-### Move and rename files
-
-```python
-bucket_name: str = "charts"
-old_file_path: str = "generic/graph1.png"
-new_file_path: str = "important/revenue.png"
-
-data = supabase.storage.from_(bucket_name).move(old_file_path, new_file_path)
-```
-
-## Important: Proper Client Shutdown
-
-To ensure the Supabase client terminates correctly and to prevent resource leaks, you **must** explicitly call:
-
-```python
-client.auth.sign_out()
-```
+**Infrastructure:** Supabase (database + auth + storage), XAI Grok (LLM)
